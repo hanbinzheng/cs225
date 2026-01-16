@@ -1,0 +1,73 @@
+#+title: Note
+
+记录一下 cs225 的学习
+
+中间会夹杂很多其他学到或者用到的东西, 不一定跟 cs225 有关, 比如说在 cs225 过程中用到的 cli 工具, shell, vim 这些奇怪的东西
+
+我认为这个课程是一个很好的熟悉 linux 还有对应开发环境, 开发工具, 底层概念的机会, 所以会记录很多这些东西
+
+有一些不知道怎么起标题的就直接用日期当作标题了, 对于 lecture 的内容可能有一些记录, 但是可能不多
+
+这个 note 并不全面, 甚至可能不成文, 他的作用主要是让我 keep focused, 不会事无巨细的记录每一个知识点, 有一些我会了的东西不会记录, 有一些不会的但是我觉得太难了, 不足以清晰的使用文字说明清楚的我也不会记录 ( prefer 纸质, 可能会上传 pdf )
+
+* lecture 01
+
+Encapsulation 封装, 是指分开 interface 和 implementation
+
+namespace 解决复杂工程里面同名函数问题, 可 using namespace, 但是建议不要, 要习惯 namespace::xxxxx 这种 style, 比如 std::cout
+
+constructor, default constructor ( 如果没写 constructor 会默认生成一个 automatic default constructor, 这个 constructor 会给该 class 里面所有东西赋默认值, 比如 float/double 给0.0, int 給0, pointer 给 NULL ), 自定义的 constructor, constructor 可以有很多个
+
+指针 re-cap
+
+header file 记得 #ifndef XXXX_H 来避免重复 include
+
+convention 里面, xxx.h 放 declaration, xxx.c 里面放 definition / implementation
+
+* 一些有用的知识
+
+ECE220 / ECE120 legacy
+
+** 编译
+*** 1. preprocess
+主要是把 #include xxx.h 这种东西替换为 xxx.h source file 里面的文本, 对 macro 进行文字替换
+比如说 #include "xxx.h" 在 preprocess 阶段做的就是把 xxx.h 文件的文本复制过来, 替换 #include "xxx.h" 这一行
+我们上面写 guard, 即 #ifndef XXXX_H 的原因就是, 你可能在一个 source file 里面 include 了同一个文件多次, 这样你重复 declare 了一个东西多次, 可能会报错, 你加这个东西, 就会先判断, 然后如果没 include 过再 include, 保证一个文件只被 include 一次
+
+*** 2. compile
+编译器把 xxx.c 文件独立编译成对应的机器码 .o 文件, 每个 .c 文件独立编译, 未实现但是有声明是可以的, 只要语法正确即可
+这个意思是说, 假如你在 xxx.h 里面写了某个函数的 declaration, 然后在 yyy.c 里 #include "xxx.h", 然后你在 xxx.c 里面实现了 xxx.h 里面 declare 的函数, 你在编译 yyy.o 的时候, yyy.c 里面并没有这个 xxx.h 里声明的函数的实现, 即使你不写 xxx.c 这个编译也是成功的
+
+在 vim 里面查看二进制文件 ( elf 格式: :%!xxd, %表示全局, !表示外部命令, xxd 是一个解析二进制码的工具 ), 是时候对 vim 再进一步了
+
+编译常见 option
+a. -std=gnu99: 使用什么规范什么标准
+b. -c: compile only, 不 link
+c. -g: enable gdb debug, debug 选项
+d. -O0: 优化与否, -O0 表示不优化便于 debug, 数字越大表示优化的越厉害
+e. 关于容错和警告: -Wall 是 warning all 的意思, 警告大部分错误 ( 尽管声称是 warning all ), -Wextra 额外警告, 比 -Wall 更多, -pedantic 严格遵循标准 ( 学究 )
+
+*** 3. link
+把各个 .o 文件链接起来, 生成 executable image, 这个时候会有什么重复定义, 声明了没找到这些问题
+比较 tricky 的地方是, 即使你在 xxx.c 里面不 #include xxx.h ( xxx.c 里面实现了 xxx.h 里面声明的函数 ), 编译器还是可以正确 link 的, 只不过没人这么干
+
+当然, 很多时候在写 gcc 指令的时候, 我们不分开 compile 和 link, 两个是一起的
+
+常见指令: gcc ..... -o executable, -o 后面的名字是 executable image, 然后 ./executable 就可以执行命令了
+
+*** make 和 Makefile
+贴吧上看见一个很好的介绍 https://tieba.baidu.com/p/591519800
+要会自己独立写基本的 Makefile, 要能看懂并且在已有的基础上修改复杂的 Makefile, 这玩意实际上可以调用 shell 指令还是很 powerful的,
+还有用于更复杂的 cmake
+东西太多了暂时就不记录了, 经常用经常写自然就会了, 开个坑专门记录这些工具吧, 放在这个文件的最后
+
+** variable 相关
+
+* Useful Tools
+
+记录一下使用到的有用的工具
+
+** vim
+** make & makefile
+** git
+** svn

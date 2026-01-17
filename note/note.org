@@ -1,12 +1,14 @@
 #+title: Note
 
-记录一下 cs225 的学习
+记录一下 cs225 ( 基于 cpp 的数据结构 ) 的学习
 
 中间会夹杂很多其他学到或者用到的东西, 不一定跟 cs225 有关, 比如说在 cs225 过程中用到的 cli 工具, shell, vim 这些奇怪的东西
 
 我认为这个课程是一个很好的熟悉 linux 还有对应开发环境, 开发工具, 底层概念的机会, 所以会记录很多这些东西
 
-有一些不知道怎么起标题的就直接用日期当作标题了, 对于 lecture 的内容可能有一些记录, 但是可能不多
+对一些 lecture 的内容记录可能不多, 有些内容不知道怎么命名就瞎起名字了
+
+其实似乎应该叫做 linux 下面的开发体验记录以及 cs225 课程笔记, 而不只是 cs225 课程笔记
 
 这个 note 并不全面, 甚至可能不成文, 他的作用主要是让我 keep focused, 不会事无巨细的记录每一个知识点, 有一些我会了的东西不会记录, 有一些不会的但是我觉得太难了, 不足以清晰的使用文字说明清楚的我也不会记录 ( prefer 纸质, 可能会上传 pdf )
 
@@ -24,9 +26,10 @@ header file 记得 #ifndef XXXX_H 来避免重复 include
 
 convention 里面, xxx.h 放 declaration, xxx.c 里面放 definition / implementation
 
+
 * 一些有用的知识
 
-ECE220 / ECE120 legacy
+ECE220 / ECE120 / STM32 legacy
 
 ** 编译
 *** 1. preprocess
@@ -54,6 +57,10 @@ e. 关于容错和警告: -Wall 是 warning all 的意思, 警告大部分错误
 当然, 很多时候在写 gcc 指令的时候, 我们不分开 compile 和 link, 两个是一起的
 
 常见指令: gcc ..... -o executable, -o 后面的名字是 executable image, 然后 ./executable 就可以执行命令了
+g++ -std=c++1y  -lpng -lpthread -lm xxx.o o executable
+-lpng 前面的 -l 表示 lib, 然后 png 是系统 lab 库, 一般在 /usr/lib/x86_64-linux-gnu 这个里面, 里面有 .so 这种动态库 ( ros 2 control 里面用的那个 ), 也有 .a 这种静态库, 我们可以使用 file 指令查看这个东西的性质, 比如:
+(base) zhb:/usr/lib/x86_64-linux-gnu$ file libImath-3_1.so.29
+libImath-3_1.so.29: symbolic link to libImath-3_1.so.29.8.0
 
 *** make 和 Makefile
 贴吧上看见一个很好的介绍 https://tieba.baidu.com/p/591519800
@@ -61,13 +68,744 @@ e. 关于容错和警告: -Wall 是 warning all 的意思, 警告大部分错误
 还有用于更复杂的 cmake
 东西太多了暂时就不记录了, 经常用经常写自然就会了, 开个坑专门记录这些工具吧, 放在这个文件的最后
 
+** memory
+以 stm32 的内存设计为例, lc 3 内存位置忘记了懒得去查, 但是 lc3 也是和 stm32 的内存设计差不多的, stm32 的内存还更真实一点
+
+哦, 找到 lc3 memory setting 了: https://github.com/hanbinzheng/ece220/blob/main/LC3_BASICS/memory_layout
+
+这个是一个 stm32 h723 link 使用的 .ld 脚本: https://github.com/hanbinzheng/infantry/blob/main/STM32H723XG_FLASH.ld
+
+关于 stm32 h7 芯片物理上有哪些存储, 这些存储有哪些特点, 以及在 memory 里面这些存储是如何规划的
+下面的东西在声明我有哪些地方是合法的, 内存的哪些地方是可以放东西的
+FLASH / ROM 断电不丢失, RAM 断电丢失, SRAM: Static RAM, MCU 里面基本都是 SRAM,
+
+下面是简化版的 .ld 文件, 用于展示内存布局的
+
+#+begin_src conf
+/* Entry Point */
+ENTRY(Reset_Handler)
+
+/* Highest address of the user mode stack */
+_estack = ORIGIN(DTCMRAM) + LENGTH(DTCMRAM);    /* end of RAM */
+/* Generate a link error if heap and stack don't fit into RAM */
+_Min_Heap_Size = 0x200;      /* required amount of heap  */
+_Min_Stack_Size = 0x400; /* required amount of stack */
+
+/* specify memory sections */
+MEMORY
+{
+DTCMRAM (xrw) : ORIGIN = 0x20000000, LENGTH = 128K  /* DTCM, CPU 专属访问读写极快, Dtat TCM, 主要放的是 CPU 高频访问的数据 */
+RAM_D1  (xrw) : ORIGIN = 0x24000000, LENGTH = 320K  /* SRAM Region 1, rwx 都行, 可被 CPU/DMA/外设访问, 访问延迟大于 TCM  */
+RAM_D2  (xrw) : ORIGIN = 0x30000000, LENGTH = 32K   /* SRAM Region 2, 同上 */
+RAM_D3  (xrw) : ORIGIN = 0x38000000, LENGTH = 16K   /* SRAM Region 3, 同上 */
+ITCMRAM (xrw) : ORIGIN = 0x00000000, LENGTH = 64K   /* ITCM, CPU 专属访问极快, Instruction TCM, 极端实时的代码指令 */
+FLASH   (rx)  : ORIGIN = 0x08000000, LENGTH = 1024K /* FLASH, 只能 rx, 不能 w, 因此一般放不会修改的东西, 比如常量, 程序代码, 向量表 */
+}
+
+/* Define output sections */
+SECTIONS
+{
+        /* The startup code goes first into FLASH */
+        .isr_vector : { /* 中断向量表, 在 FLASH 开头 */ } >FLASH
+
+        /* The program code and other data goes into FLASH */
+        .text : { /* 所有程序, .text 和 .text* 的都放在这里 */ } >FLASH
+
+        /* Constant data goes into FLASH */
+        .rodata : { /* 常值, .rodata 和 .rotata*, ( constants, strings, etc. ) */ } >FLASH
+
+        /* ARM 特定段, 没研究过, 但是这俩都是 READONLY 的, 也在 FLASH */
+        .ARM.extab : { /* ARM异常处理表 */ } >FLASH
+        .ARM : { /* ARM异常索引表 */ } >FLASH
+
+        /* 给 cpp 的, 我的 stm32 里面是纯 c, 没有 cpp, 没研究过 */
+        .init_array : { /* C++静态构造函数数组 */ } >FLASH
+        .fini_array : { /* C++静态析构函数数组 */ } >FLASH
+
+        /* C/CPP 初始化, 没研究过 */
+        .preinit_array (READONLY) : { /* C++/C 运行时初始化机制的一部分，用于在 main 函数之前执行初始化代码 */ } >FLASH
+
+        /* Initialized data sections goes into RAM, load LMA copy after code */
+        /* 运行时在 DTCMRAM 中, 加载时在 FLASH 中, 启动时把 FLASH 中的初始值 memcpy 到 DTCMRAM 中的 .data 对应位置 */
+        .data : { /* 有初始值的 "静态存储期对象", 如全局变量, static 全局, static 局部 * / } >DTCMRAM AT> FLASH
+
+        /* Uninitialized data section */
+        .bss : { /* 没有显式初始化的静态存储期对象, 不占 Flash 直接放 DTCMR, 如未初始化的全局/static 全局/static 局部 */ } >DTCMRAM
+
+        /* buffer specified for dma1 and dma */
+        .dma12_buffer (NOLOAD) : { /* DMA 没有办法访问 DTCM, 所以给开一个地方在 SRAM 上面 */ } >RAM_D2
+
+        /* User_heap_stack section, used to check that there is enough RAM left */
+        ._user_heap_stack : { /* user 使用的 heap 段, 用于 malloc */ } >DTCMRAM
+
+}
+#+end_src
+
+你会发现这里没有 stack 的地方, 这个是因为 stack 不是预先规定的, stack 是 CPU 的 SP 寄存器 + RAM 空间
+规定一下 convention, 一般称地址较大的为高地址, 地址较小的为低地址, 比如说 0x0010 和 0x1000, 0x1000 算高地址, 0x0010 算低地址
+stack top: 当前 stack pointer 指向的位置, stack bottom: stack 被分配的那一端的边界
+主流 CPU 上, stack 是从高地址向低地址生长, PUSH 代表 SP 减少, POP 代表 SP 变大,
+_estack 代表 stack 的分配边界, 最高的那个地址, stack pointer 从 _estack 这个地址开始向低地址生长, 有一些恶心的 bug 比如说 stack 长到了 heap 里面
+stack overflow: stack 踩到了 heap 和 .bss 段
+
+STM32H723内存映射:
+#+begin_src txt
+0x0000 0000 ┌─────────────┐ 别名区 ( 自动映射到Flash或RAM )
+            │             │
+0x0800 0000 ├─────────────┤ Flash起始 ( 程序在这里 )
+            │   .text     │ ← 代码段
+            │  .rodata    │ ← 只读数据
+            │ .data初始化值 │
+0x0810 0000 ├─────────────┤
+            │             │
+0x2000 0000 ├─────────────┤ RAM起始
+            │   .data     │ ← 已初始化变量 ( 从Flash复制过来 )
+            │   .bss      │ ← 未初始化变量 ( 清零 )
+            │    堆(heap) │ ← malloc 使用
+            │             │
+            │    _estack  │ ← stack base/bottom, DTCM 结束, stack pointer 从这里开始向低地址生长
+0x2008 0000 └─────────────┘
+#+end_src
+
 ** variable 相关
+关于变量存储位置, 作用域, 生命周期, 非常重要
+
+1. 一般局部变量, 即函数内部使用的一般变量 (无static关键字), 作用域是该函数体内部, 储存位置在 run time stack 上面, 生命周期是函数被调用时创建/初始化, 到函数 return 时生命周期结束, 比如 void function(int a, int b) {} 里面的 c 这个局部变量
+   这个在 ECE220 写 run time stack 的 lc3 汇编的时候已经学的很明白了
+2. static 局部变量, 一般的局部变量加上一个 static 关键字, 比如. void function(int a, int b) { static int c = a + b; }, 这个变量的作用域也是该函数内部, 即只有该函数内部才能访问这个变量, 但是这个变量的生命周期是整个程序执行的时间, 主要放在 .data/.bss 段 ( 取决于有没有初始化 )
+3. 全局变量, 如直接写在 .c 文件里 ( 不在任何一个函数内部 ), 作用域是全部程序 ( 注意, 如果 local variable 和 global variable 重名, 那在函数内使用的是 local 的 ), 即任何一个程序都可以访问 ( 使用这个全局变量的程序要有 extern 关键字声明这个变量存在 ), 否则无法直接使用, 这个东西的储存位置在 .bss 或者 .data 段 ( 取决于有没有初始化 ), 生命周期是整个程序的执行时间, 注意, 全局变量的名字不能重复
+4. static 全局变量, 跟全局变量唯一的区别是作用域被限定为了这个 .c 文件, 只有这个文件里的函数可以使用
+
+** c关键字和 GCC 提示指令
+1. extern
+   用于声明全局变量的
+
+   比如说在 xxx.c 里面写了 extern int a;, 声明这里有一个全局变量 a, 但是在别的地方不知道在哪里 ( 可能在别的文件, 也可能在这个文件的后面 ), 但是我 extern int a; 声明之后, xxx.c 后面的内容就可以使用 a 这个变量了
+
+   我们有时候会这样 (这个实际上是使用全局变量的标准模式), 在 xxx.h 里面写 extern int a;, 然后在 xxx.c 里面写 int a = 0;, 当你在其他 .c 文件里 #include "xxx.h" 之后, 经过 preprocess, extern int a; 这个声明会出现在其他文件里, 让其他文件可以访问这个全局变量, 在 xxx.c 里, 你 #include "xxx,h", preprocess 的时候有了 extern int a; 这个声明, 然后你在后面写 int a = 0;, 给了变量 a 这个定义
+
+2. static
+   表示 local, 表示这个东西仅属于当前 函数/文件, 其他 函数/文件 用不了, 这个使得我们可以重名, 比如说在 xxx.h 里面写 static int add(int a, int b) {return a + b};, 然后不同 #include "xxx.h" 的 c 文件都有这个 add 函数的 local 版本, 不会出问题, 但是如果你没有写 static, 就会出现很多个 add 函数 ( 没有 static 的时候, 这个函数默认是 global 的 ), 这个时候编译器就会报错
+
+   static 的 variable 在 .bss 或者 .data 段, static 的函数在 .text 段, 但是只有该函数/文件可以使用
+
+3. inline
+   用于内联, 内联是一种编译器优化，建议编译器把函数调用替换为函数体本身
+
+   如果没有内联                                      内联之后
+   int square(int x) { return x * x; }             inline square(int x) {return x * x;}
+   int y = square(5);                              int y = square(5);
+
+   // 编译后:
+   // call square  ; 调用函数                        // mov y, (5 * 5)   ; 直接计算结果，不调用函数
+   // mov result to y
+
+   inline 的用法:
+   (1) 头文件定义函数, 编译的时候就直接展开了, 不会出现我们在 2. 里面提到的有多个函数定义的问题
+   (2) 性能优化, 因为直接展开了, 没有函数调用开销, 适合用来写小函数, 比 #define 这种 macro 安全, 而且性能几乎没有区别, 我习惯用 static inline 代替有逻辑的 macro
+
+4. const
+
+   const 表示是指编译器会阻止对该变量做语意上的修改, 如果你通过一些奇技淫巧用指针绕过的话, 还是可以改的
+
+   const 修饰它左边最近的东西, 如果左边没, 就修饰它右边的, const int a; 和 int const a; 完全一样
+
+   指针相关的 const, 这个很容易搞混
+
+   指向 const 的指针
+   #+begin_src c
+    const int *p;   // 或 int const *p;
+
+    int x = 5;
+    int y = 6;
+    p = &x;
+    ,*p = 10;   // 编译错误，指向的数据不能改
+    p = &y;    // 指针本身可以改
+   #+end_src
+
+   const 指针 ( 指针本身不可改 )
+   #+begin_src c
+    int * const p = &x;
+    *p = 10; // 可以修改指向的值
+    p = &y; // 指针本身不能修改
+   #+end_src
+
+   指向 const 数据的 const 指针 ( 双重 const )
+   #+begin_src c
+   const int * const p = &x;
+   #+end_src
+
+   在 cpp 里面, 这个也是类似的
+   #+begin_src cpp
+   PNG const & a = ...;
+   #+end_src
+   这里的 const 修饰的是 PNG, 然后从 a 开始往左读, 是 reference to const PNG, 不能改变这个 PNG 的值, 这个是用来传参的一个重要办法, 避免拷贝, 也避免改变传如的参数
+
+   还有一个 const 的例子
+   #+begin_src cpp
+   bool operator==(PNG const& other) const;
+
+   // 等价形式
+   bool operator==(PNG const& other, PNG const* const this);
+   // PNG const * const this, 左边的 const 修饰 PNG, 表示不改变 PNG, 右边的 const 修饰 (PNG const *), 表示不改变这个指针
+   #+end_src
+
+5. __attribute__
+
+   这个不是 c 的关键字, 是给 GCC 的提示和指令, 是 GCC 的特性而不是 c 语言的特点
+
+   __attribute__ 是 GCC 的编译器指令, 用于: 给编译器额外的优化提示/给编译器额外的优化提示/启用特定的语言扩展/提供调试信息
+
+   因为我用的也不多, 我只在处理 DMA 无法 access DTCM 的时候手动放置 buffer 的时候用了一次, 所以这里多放了几个例子, 虽然我不觉得这些例子会用到, 但是别人用到的时候要看得懂
+
+   基本语法
+   ,#+begin_src c
+    // 单个属性
+    type name __attribute__((attribute_name));
+
+    // 多个属性
+    type name __attribute__((attr1, attr2, attr3));
+
+    // 函数属性
+    return_type func_name(args) __attribute__((attribute_name));
+   #+end_src
+
+   函数优化提示
+   #+begin_src c
+    // 1. 内联控制
+    void __attribute__((always_inline)) fast_func() { ... }
+    void __attribute__((noinline)) big_func() { ... }
+
+    // 2. 热/冷函数提示
+    void __attribute__((hot)) critical_path() { ... }   // 经常执行
+    void __attribute__((cold)) error_handler() { ... }  // 很少执行
+
+    // 3. 纯函数/常量函数
+    int __attribute__((pure)) calculate(int a, int b) {
+         // 纯函数：只依赖参数，无副作用
+         return a + b;
+    }
+    double __attribute__((const)) pi() {
+         // 常量函数：相同输入永远相同输出，且不读全局变量
+         return 3.1415926;
+    }
+
+    // 4. 不返回函数
+    void __attribute__((noreturn)) panic() {
+         while(1);  // 永不返回
+    }
+   #+end_src
+
+   内存布局控制
+   #+begin_src c
+    // 1. 指定段
+    uint8_t buffer[1024] __attribute__((section(".dma_buffer")));
+    const char str[] __attribute__((section(".rodata.custom")));
+
+    // 2. 对齐控制
+    uint32_t data __attribute__((aligned(32)));  // 32字节对齐
+    struct S __attribute__((aligned(64))) { ... };  // 结构体对齐
+
+    // 3. 打包结构体（取消填充）
+    struct __attribute__((packed)) Packet {
+         uint8_t cmd;
+         uint32_t data;  // 通常会有3字节填充，packed取消填充
+    };
+
+    // 4. 弱符号（允许覆盖）
+    int __attribute__((weak)) default_value = 0;
+    void __attribute__((weak)) default_handler() { ... }
+   #+end_src
+
+** cpp 入门特性
+
+这里主要讲一下 ECE 220 用到的 cpp 入门的一些特性
+
+*** 初始成员列表
+
+在创立并初始化一个对象的时候, 一般流程是:
+1. 分配内存 ( 为整个 object )
+2. 初始化 base class 部分 ( 如果有 inheritance )
+3. 按照声明顺序初始化所有数据成员 ( 始化的顺序是成员的声明顺序, 如果有初始成员列表, 使用初始成员列表的值进行初始化, 没有则默认  )
+4. 执行构造函数体 ( 注意, 是构造函数题, 不是构造函数 )
+
+初始成员列表性能上比赋值的办法快, 而且对于一些 const 的变量, 只能使用初始成员列表来做, 还有 reference 也只能用初始成员列表的办法初始化 ( 本质上也是个 const )
+
+#+begin_src cpp
+class MyClass {
+private:
+    std::string name;     // class object
+    int id;               // 基本的类型
+    const int version;    // const
+    std::vector<int>& ref_vec;  // reference
+
+public:
+    // 在构造函数体内赋值
+    MyClass(std::string n, int i, int v, std::vector<int>& vec) {
+        name = n;          // name已经调用了 name 的默认构造函数, 即已经初始化了, 这里实际是 operator= 赋值
+        id = i;            // 基本类型重新赋值, 影响比较小
+        // version = v;    // const 的变量已经被初始化了, 这里是赋值, 但是 const 不能赋值
+        // ref_vec = vec;  // reference 本质上是 const 指针, 理由同 const
+    }
+
+    // 使用初始成员列表
+    MyClass(std::string n, int i, int v, std::vector<int>& vec)
+        : name(n),         // 直接调用拷贝构造函数
+          id(i),           // 基本类型直接初始化
+          version(v),      // const attribute 初始化, 必须初始成员列表
+          ref_vec(vec) {   // reference attribute 必须有初始化
+        // ........
+    }
+};
+#+end_src
+
+#+RESULTS:
+
+在底层, 赋值初始化会让整个再多一次赋值的操作, 效率会低
+
+*** reference
+
+在底层就是 const pointer, 比如说 int & a = b;, 这个初始化操作在底层就是一个 int * const a = &b;, 然后之后在 cpp 里面我们每次用到 reference 的时候, 我们做的实际上都是对这个 const pointer 做引用, 然后指针的值 (b这个变量的地址) 是不能变的 ( const 修饰 ), 换句话说, 指向哪里不能再变了, 但是指向的地址存的值是可以改变的
+
+这个就是为什么我们在初始化一个 class 的 reference 变量的时候要使用初始成员列表的方式初始化了
+
+*** operator
+
+在 cpp 里, 运算符重载就是成员函数或普通函数, 只有名字是特殊的
+
+#+begin_src cpp
+return_type operator<op>(parameter_list) [cv] [ref] [noexcept];
+#+end_src
+
+这个没有任何神奇的, 只是一个函数名叫 operator<op> 的函数, 其中这个 operator 的左值是这个 operator 对应的 object, 然后这个右值是传入这个 method 的 arguments
+
+比如
+#+begin_src cpp
+// operator function declaration
+bool PNG::operator==(PNG const& other) const;
+
+// you can write
+bool c = (a == b); // a and b are PNG type objects
+
+// this is equivalent to
+bool c = q.operator==(b);
+#+end_src
+
+*** inheritance
+
+忘记了, 暂时还没碰到, 先放着, 碰到了学了再写
+
+*** function overload / virtual function
+
+忘记了, 暂时还没碰到, 先放着, 碰到了学了再写
+
+
+* lecture 02
+
+** more on constructor
+
+可以在 default constructor 里面调用 custom constructor 去完成 initialization, 叫做委托构造函数
+
+#+begin_src cpp
+#include "sphere.h"
+namespace cs225 {
+    // delegating constructor: 委托构造函数
+    Sphere::Sphere() : Sphere(1.0) {} // 在 initialization list 的位置调用 custom constructor
+
+    Sphere::Sphere(double r) : r_(r) {
+        // other logic
+    } // custom constructor
+}
+#+end_src
+
+讲一下这个语法
+Sphere::Sphere() : Sphere(1.0) {} 里面最右边的那个冒号叫做: 构造函数初始化列表 ( constructor initializer list ), 是 cpp 里面唯一一个可以在对象 "出生瞬间" 初始化东西的地方, 相当于是说他定义了, 在这个对象一旦被声明和初始化的时候的 behavior 是什么
+
+#+begin_src cpp
+Constructor
+  : initializer1,
+    initializer2,
+    ...
+{
+    // constructor body
+}
+#+end_src
+
+这里面的每一个 initializer 可以是下面两者之一: 1. list initialization, 2. delegating initialization
+
+再强调一遍 cpp object 的初始化过程:
+1. 分配内存
+2. 初始化成员 ( 只能在 initializer list 的地方干预, 否则就是执行每一个东西的默认的初始化 )
+3. 执行构造函数体 {}
+
+这个冒号后面的地方是我们唯一可以干预的地方
+
+凡是 "对象一出生就必须确定的东西", 只能写在 : 后面, 比如 const, reference, delegating construction, base class object
+
+体会一下 cpp 的哲学 RAII:
+RAII = Resource Acquisition Is Initialization
+资源的获取 = 对象的初始化, 资源的释放 = 对象的析构
+
+** memory location 重温
+
+重温了一下 run time stack, 以及使用 lldb (md, gdb 不支持这个, 绷不住了) 去看了一下 undefined behavior, 下面是这个例子
+
+cpp 文件, 这个 Sphere 的 object 是在 run time stack 上面被创建的, 在调用下面的函数的时候这个 stack 大概率已经被 clear 了
+#+begin_src cpp
+#include "sphere.h"
+#include <iostream>
+
+using namespace cs225;
+
+Sphere *CreateUnitSphere() {
+  Sphere s(1);
+  return &s;
+}
+
+int main() {
+
+  Sphere *s = CreateUnitSphere();
+
+  double r = s->getRadius();
+  std::cout << "r: " << r << std::endl;
+  double v = s->getVolume();
+  std::cout << "v: " << v << std::endl;
+
+  return 0;
+}
+#+end_src
+
+compile and run ( on mac )
+#+begin_src zsh
+zhb ~/Desktop/cs225/lecture/lecture02/code-lecture02 % g++ -g -c sphere.cpp
+zhb ~/Desktop/cs225/lecture/lecture02/code-lecture02 % g++ -g -c sphere-badCreate.cpp
+sphere-badCreate.cpp:8:11: warning: address of stack memory associated with local variable 's' returned [-Wreturn-stack-address]
+    8 |   return &s;
+      |           ^
+1 warning generated.
+zhb ~/Desktop/cs225/lecture/lecture02/code-lecture02 % g++ sphere.o sphere-badCreate.o -o bad_create
+zhb ~/Desktop/cs225/lecture/lecture02/code-lecture02 % ./bad_create
+r: 1
+v: 0
+zhb ~/Desktop/cs225/lecture/lecture02/code-lecture02 %
+#+end_src
+
+在 ubuntu24.04 上面 compile + run
+#+begin_src bash
+(base) zhb:~/Desktop/code-lecture02$ g++ -c -g sphere.cpp
+(base) zhb:~/Desktop/code-lecture02$ g++ -c -g sphere-badCreate.cpp
+sphere-badCreate.cpp: In function ‘cs225::Sphere* CreateUnitSphere()’:
+sphere-badCreate.cpp:8:10: warning: address of local variable ‘s’ returned [-Wreturn-local-addr]
+    8 |   return &s;
+      |          ^~
+sphere-badCreate.cpp:7:10: note: declared here
+    7 |   Sphere s(1);
+      |          ^
+(base) zhb:~/Desktop/code-lecture02$ g++ sphere.o sphere-badCreate.o -o bad_create
+(base) zhb:~/Desktop/code-lecture02$ ./bad_create
+Segmentation fault (core dumped)
+(base) zhb:~/Desktop/code-lecture02$
+#+end_src
+
+gdb 去查看发生了啥
+#+begin_src bash
+Breakpoint 1, main () at sphere-badCreate.cpp:13
+13        Sphere *s = CreateUnitSphere();
+(gdb) info locals
+s = 0x7ffff7cb738f <_GLOBAL__sub_I_eh_alloc.cc(void)+431>
+r = 6.9533490978045684e-310
+v = 6.9533558074180129e-310
+(gdb) print &s
+$1 = (cs225::Sphere **) 0x7fffffffddc8
+(gdb) print &r
+$2 = (double *) 0x7fffffffddd0
+(gdb) print &v
+$3 = (double *) 0x7fffffffddd8
+(gdb) step
+CreateUnitSphere () at sphere-badCreate.cpp:6
+6       Sphere *CreateUnitSphere() {
+(gdb) s
+7         Sphere s(1);
+(gdb) print &s
+$4 = (cs225::Sphere *) 0x7fffffffdda0
+(gdb) finish
+Run till exit from #0  CreateUnitSphere () at sphere-badCreate.cpp:7
+0x00005555555552e1 in main () at sphere-badCreate.cpp:13
+13        Sphere *s = CreateUnitSphere();
+Value returned is $5 = (cs225::Sphere *) 0x0
+(gdb) print s
+$6 = (cs225::Sphere *) 0x7ffff7cb738f <_GLOBAL__sub_I_eh_alloc.cc(void)+431>
+(gdb) print *s
+$7 = {r_ = 6.8523770472794107e+38}
+(gdb) s
+15        double r = s->getRadius();
+(gdb) print r
+$8 = 6.9533490978045684e-310
+(gdb) s
+cs225::Sphere::getRadius (this=0x0) at sphere.cpp:13
+13          return r_;
+(gdb) s
+
+Program received signal SIGSEGV, Segmentation fault.
+0x0000555555555208 in cs225::Sphere::getRadius (this=0x0) at sphere.cpp:13
+13          return r_;
+(gdb) s
+
+Program terminated with signal SIGSEGV, Segmentation fault.
+The program no longer exists.
+#+end_src
+
+他得到的返回值甚至不是原来的 stack 地址, 只能说 UB 是真的 Undefined Behavior
+还有这里的 stack 的分布并不是真的是 local variable 先声明的先 push, 呃, 这个, emm, 只能说比较灵活吧, 但是有的地方是先声明先分配的
+
+我们再试验一下这个 stack 的问题, 把他 print 出来
+macbook 上面
+#+begin_src bash
+s->getRadius(): 4.17291e-314
+&s (main): 0x16d7d2d18
+ s (main): 0x16d7d2cb8
+&r (main): 0x16d7d2d10
+ r (main): 4.17291e-314
+&v (main): 0x16d7d2d08
+ v (main): 0
+#+end_src
+
+ubuntu 24.04 上面
+#+begin_src bash
+(base) zhb:~/Desktop/code-lecture02$ ./bad_2
+Segmentation fault (core dumped)
+#+end_src
+
+只能说两个表现很不一样了, 两个东西的 UB 还有 stack behavior 完全不一样呢
+
+我 check 了一下这个东西, 发现确实, 我的 ubuntu 和 mac 的 run time stack 的生长方向是不一样的
+
+#+begin_src cpp
+#include <iostream>
+
+using namespace std;
+
+int main() {
+
+  int first = 42;
+  int arr[6];
+
+  cout << &first << endl;
+  cout << &(arr[0]) << endl;
+  cout << &(arr[1]) << endl;
+  cout << &(arr[2]) << endl;
+
+  return 0;
+}
+#+end_src
+
+编译之后在 ubuntu 上面跑
+#+begin_src bash
+(base) zhb:~/Desktop/code-lecture02$ g++ stack-array.cpp
+(base) zhb:~/Desktop/code-lecture02$ ./a.out
+0x7ffc30b2507c
+0x7ffc30b25080
+0x7ffc30b25084
+0x7ffc30b25088
+(base) zhb:~/Desktop/code-lecture02$
+#+end_src
+
+编译之后在 mac 上面跑
+#+begin_src bash
+~/Desktop/cs225/lecture/lecture02/code-lecture02 $ g++ stack-array.cpp
+~/Desktop/cs225/lecture/lecture02/code-lecture02 $ ./a.out
+0x16fa6acf8
+0x16fa6ad00
+0x16fa6ad04
+0x16fa6ad08
+~/Desktop/cs225/lecture/lecture02/code-lecture02 $
+#+end_src
+
+发现这个好像并不是我们在 lc3 里面学到的那样, 先 declare 的先 pop, 我们再写个东西 check 一下
+
+#+begin_src cpp
+#include <iostream>
+
+void f(int i) {
+	int a = i;
+	std::cout << "a: " << a << " Address of a: " << &a << std::endl;
+	if (i > 0) {
+		f(i - 1);
+	}
+}
+
+
+int main(void) {
+	f(3);
+	return 0;
+}
+#+end_src
+
+macbook
+#+begin_src bash
+zhb ~/Desktop/cs225/lecture/lecture02/code-lecture02 % g++ stack_growth.cpp
+zhb ~/Desktop/cs225/lecture/lecture02/code-lecture02 % ./a.out
+a: 3 Address of a: 0x16bd82d18
+a: 2 Address of a: 0x16bd82cf8
+a: 1 Address of a: 0x16bd82cd8
+a: 0 Address of a: 0x16bd82cb8
+#+end_src
+
+ubuntu
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ stack_growth.cpp
+(base) zhb:~/Desktop$ ./a.out
+a: 3 Address of a: 0x7ffe11687384
+a: 2 Address of a: 0x7ffe11687354
+a: 1 Address of a: 0x7ffe11687324
+a: 0 Address of a: 0x7ffe116872f4
+(base) zhb:~/Desktop$
+#+end_src
+
+run time stack 确实是从高地址往低地址增长的
+
+总的来说, 就是这个 run time stack 确实是一般从高地址向低地址增长, 但是一个函数内部, 变量声明的先后和这个 stack 上变量的位置没有必然的关系
+
+总之, 我们获得了两个确定的结论:
+1. run time stack 总的方向上, 是从高地址向低地址增长的
+2. 一个 array 内部, &(array[0]) < &(array[1]) < ...., 而且大概率紧密排列
+
+其他都不是确定的, 没有一个固定的标准, run time stack 内部的 behavior 完全是编译器爱咋干就咋干
+
 
 * Useful Tools
 
 记录一下使用到的有用的工具
 
+** gcc
+1. g++/gcc filename 直接默认编译, 得到 a.out
+2. link .o 的时候, 直接 g++/gcc xxx.o xxx.o -o executable 就好了, -l 是用于连接 library 的
+
+
 ** vim
+1. : 进入命令模式, !xxxx 表示执行外部指令, 然后返回到 vim
+2. :term 是在 vim 里面分屏, 然后在一个屏里面打开 terminal
+
+
 ** make & makefile
+make -j 可以开多进程编译, 会快非常多
+不要手动 rm -rf, 使用 make clean 指令, 同时善用 Makefile 去简化一下 shell 指令
+
+
 ** git
+1. git branch
+   git branch -a 可以看 all branch 名字, git branch -m/M branch-name: 重命名 / 强制重命名当前的 branch
+   git branch branch-name 新建一个 branch name
+2. git rm --cached filename
+   把 staged 的东西放到工作区, 标记为 untracted
+
+
 ** svn
+首先, svn 并不有用, 我只是因为要交作业不得不使用它才学的
+1. svn commit
+   傻逼玩意, 没有本地工作区和提交区的, 直接就 commit 到了 remote
+2. svn update
+   得到最新的 remote 的副本
+3. svn revert file-name
+   根据你的 svn, 把 file 变成上一次你 commit 的时候
+4. svn diff
+   类似 git diff
+
+
+** linux cli command
+*** dpkg
+Debian PacKaGe
+# 列出所有已安装的包
+dpkg -l
+
+# 查找特定包
+dpkg -l | grep python
+
+# 查看包的详细信息
+dpkg -s libpng-dev
+
+# 查看包安装的文件
+dpkg -L libpng-dev
+
+# 查看文件属于哪个包
+dpkg -S /usr/include/png.h
+
+# 安装本地.deb文件
+sudo dpkg -i package.deb
+
+# 安装并修复依赖
+sudo dpkg -i package.deb
+sudo apt-get install -f  # 修复依赖
+
+# 卸载包（保留配置）
+sudo dpkg -r package-name
+
+# 完全卸载（包括配置）
+sudo dpkg -P package-name
+
+*** find
+find [路径] [选项] [表达式]
+
+# 在当前目录查找所有.cpp文件
+find . -name "*.cpp"
+# 在整个系统查找libpng.so（2>/dev/null隐藏错误）
+find / -name "libpng.so" 2>/dev/null
+# 不区分大小写查找
+find . -iname "*.CPP"  # 会找到.cpp、.CPP、.Cpp等
+# 只找目录
+find . -type d -name "build*"
+# 只找普通文件
+find . -type f -name "*.o"
+# 找符号链接
+find . -type l
+# 7天内修改过的文件
+find . -mtime -7
+# 30天前修改过的文件
+find . -mtime +30
+# 今天修改过的文件
+find . -mtime 0
+# 按访问时间找
+find . -atime -1  # 24小时内访问过的
+
+*** file
+file + filename 可以查看文件相关信息
+
+(base) zhb:/usr/lib/x86_64-linux-gnu$ file libc.so
+libc.so: ASCII text
+(base) zhb:/usr/lib/x86_64-linux-gnu$ file libc.so.6
+libc.so.6: ELF 64-bit LSB shared object, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=274eec488d230825a136fa9c4d85370fed7a0a5e, for GNU/Linux 3.2.0, stripped
+(base) zhb:/usr/lib/x86_64-linux-gnu$
+*** ldd
+Library DepenDency
+
+# 查看可执行文件的依赖
+ldd /bin/ls
+
+# 查看共享库的依赖
+ldd /usr/lib/libpng.so
+
+# 查看自己编译的程序
+ldd ./myprogram
+ldd /bin/ls
+# 输出：
+# linux-vdso.so.1 (0x00007ffd...)
+# libselinux.so.1 => /lib/x86_64-linux-gnu/libselinux.so.1
+# libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6
+# /lib64/ld-linux-x86-64.so.2
+
+# 解释：
+# => 左边：程序需要的库名
+# => 右边：系统找到的实际文件路径
+# 没有 =>：特殊虚拟库
+# not found：找不到的库（有问题！）
+
+# 1. 检查缺失的库
+ldd ./myapp | grep "not found"
+
+# 2. 查看库的完整路径
+ldconfig -p | grep libpng
+
+# 3. 设置库路径
+export LD_LIBRARY_PATH=/my/libs:$LD_LIBRARY_PATH
+ldd ./myapp  # 再次检查
+

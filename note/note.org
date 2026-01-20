@@ -673,6 +673,517 @@ run time stack 确实是从高地址往低地址增长的
 其他都不是确定的, 没有一个固定的标准, run time stack 内部的 behavior 完全是编译器爱咋干就咋干
 
 
+* lecture 03
+
+我只能说这节课体验极差, 老师什么都没有讲清楚, 讲的就是一坨狗屎, 但是老师看上去自己确乎是懂的, 只是不想讲清楚, 不像某些 220 老师, 看上去自己都不懂, 下面整理清楚
+
+** 1. 重识 reference
+*** (1) reference semantics
+reference: an alias of an existing object
+
+之前一直使用的是 const pointer 的角度去理解这个 reference, 这样是有问题的, reference 实际上真的就是一个 alias, 是在编译器处理阶段就解决的, 并不是分配了一个 const pointer 类型的 variable, 或者说, reference variable 根本就不是一个 variable, 并没有真的在 stack 或者 heap 上面分配内存给这个 reference variable, 这个似乎是有点像 macro, 就是在编译的时候就直接结束了, 他就真的只是这个变量的一个 alias
+
+这个是验证代码
+#+begin_src cpp
+#include <iostream>
+
+int main() {
+    int * x = new int;
+    int & y = *x;
+
+    y = 4;
+
+    std::cout << "&x, on stack: " << &x << std::endl;
+    std::cout << "x, on heap: " << x << std::endl;
+    std::cout << "*x, value: " << *x << std::endl;
+
+    std::cout << "y " << y << std::endl;
+    std::cout << "&y: " << &y << std::endl;
+    // std::cout << "*y" << *y << std::endl; // invalid
+
+    return 0;
+}
+#+end_src
+
+然后我们运行一下:
+#+begin_src bash
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ g++ reference.cpp
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ ./a.out
+&x, on stack: 0x16b576d30
+x, on heap: 0x600000c9c030
+*x, value: 4
+y 4
+&y: 0x600000c9c030
+#+end_src
+
+在 programmer 的层面, reference 实际上就是对象的 alias, 也就是说, coding 的时候我们代指的就是那个真实的对象, 我们并没有在任何一个地方去分配一个实际的地址给这个 reference variable, 他实际上就是一个对象的 memory 的 alias, 但是在编译器的行为上, 传参数的时候, 你使用 reference 传参等价于传递一个指针, 或者说几乎等价, 老师上课说的 "pass parameter by reference" 没有 copy 是错的, 或者至少说, 在语意上是不严谨的, 你要访问这个 object, 你是一定要知道他的物理地址的, 不然没法访问, 他说的 "没有 copy " 是在人类语意上的说法, 但是在衡量这个开销的时候, 肯定是从调用函数的时候底层的表现来讲的, 在调用的时候肯定是往 stack 里面压入一个地址的, 不可能什么东西都不传递
+
+虽然在硬件的 ABI 上面, pointer 和 reference 似乎没什么区别 ( 简化的来看, reference 就是一个 const pointer ), 但是在语意上, 两者还是有区别的, 比如说, 你传递一个参数为 pointer, 这个可以是 NULL, 或者说用 cpp 的办法是 nullptr, 并没有保证说是这个东西一定指向一个 object, 但是如果是一个 reference 的话, 这个东西在语意上是一个 object, 或者说是一块 memory 的 alias, 所以他是有保证的
+
+*** (2) reference 用于传参
+接下来讲一下传参数的三种办法, pass by value, pass by pointer, pass by reference, 顺便复习一下 const 的用法
+
+#+begin_src cpp
+// pass by object
+void function(const class_name object);
+void function(class_name const object);
+
+// pass by pointer
+void function(const class_name *object);
+void function(class_name const *object);
+
+// pass by reference
+void function(const class_name &object);
+void function(class_name const &object);
+#+end_src
+
+复习一下, const 修饰的是他左边的东西, 就是他左边的东西是不可以改变的, 比如说 int const *x;, 这里 int 是不可改变的, 也就是说, 指针 x 可以指向不同的 int, 但是x不能修改他指向的东西的值
+如果写成了 int * const x;, 这种写法表示 int * 是不可改变的, 也就是说指针不能重新指向别的 int, 但是指针可以修改这个指向的 int 的值
+
+void function(const Class object), 这个写法等价于 void function ( Class const object ), ( const 修饰左边的东西，如果没有的话就修饰右边最近的东西), 这里反正都是表示传入的是一个 const object, 但是实际上因为传入的是 object, 反正是 copy 的, 你反正没有办法改变原来的值, 所以 const 关键字加不加意义不大
+
+void function(const Class * pointer), 这个写法也等价于 void function (Class const * pointer), 这个表示的是, pointer 指向的是一个 const object, 也就是说你不能通过这个 pointer 去修改这个pointer 指向的 object, 但是你的 pointer 可以指向不同的 const object
+
+void function(const Class & reference), 等价于 void function(Class const & reference), 这个 const 表示这个 reference alias 指向的那个 object 是不可以改变的, 但是因为你的 reference 在初始化之后就不能重新绑定了, 所以实际上你的 reference 也不能当另一个 object 的 alias
+
+所以我们一般在传递参数的时候, 因为 reference 不可重新绑定的特性, 以及 const 关键字修饰表示这个 reference 绑定的 object 不能被改变, 所以说 void function(const class_name &object); 的传参方式是最安全的
+
+** 2. 重识 constructor
+
+*** (1) default constructor 复习
+这个东西老师是真的没有讲清楚, 我受不了了, 他为什么不讲清楚, 他妈的知道不知道自己去查这个东西, 自己跟 gpt 交互去学这个是很累的? 他两句话就能讲清楚, 做一个表格也就十分钟的事情, 却浪费我半个多小时去打字向 gpt 提问, 我真的是受不了了, 为什么要有意或者无意的提高知识获取的难度, 打字打多了手都酸了, 受不了一点
+
+算了, 不管了, 先说清楚以下的东西:
+1. default constructor: 定义是, 如果我们有 class class_name, object of class_name 的 default constructor 是一个不接受任何参数的 constructor for class_name, 评判一个 constructor 是不是 default 的唯一标准是接受不接受参数
+2. implicitly-declared default constructor: 对 class_name 这个 class, 你没有写任何一个 constructor, 然后编译器会自动帮你生成一个 constructor, 这个 constructor 不接受任何参数, 所以是一个 default constructor, 你一旦写了任何一个 constructor, 那编译器就不会给你生成这个 implicitly-declared default constructor
+3. user-provided default constructor: 你自己写的 default constructor
+
+好了, 关于 default constructor 的定义就这么多, 接下来举例子看表现 ( 注意, cpp 里面, class 的东西没写 public 的话默认是 private 的, struct 里的东西没写 private 的话, 默认是 public 的 )
+
+#+begin_src cpp
+#include <iostream>
+
+class B {
+    public:
+    int b;
+    double c;
+};
+
+class A {
+    public:
+    int x;
+    std::vector<int> v;
+    B b;
+};
+
+class C {
+    public:
+    int x;
+    std::vector<int> v;
+    B b;
+
+    C() {
+        std::cout << "class C default constructor, fuck you cpp" << std::endl;
+    }
+};
+
+class D {
+    public:
+    int x;
+    std::vector<int> v;
+    B b;
+
+    D(int r) : x(r){
+        std::cout << "class D custom constructor, fuck you cpp" << std::endl;
+    }
+};
+
+int main() {
+    // test behavior of class A, implicitly-declared default constructor
+    A obj_a;
+    A obj_a_ = A();
+
+    // test behavior of class C, custom default constructor
+    C obj_c;
+    C obj_c_ = C();
+
+    // test behavior of class D, no implicitly-declared default constructor
+    D obj_d; // compile error
+    D obj_d_ = D();
+}
+#+end_src
+
+编译错误如下:
+#+begin_src cpp
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ g++ default-constructor.cpp
+default-constructor.cpp:48:7: error: no matching constructor for initialization of
+      'D'
+   48 |     D obj_d; // compile error
+      |       ^
+default-constructor.cpp:33:5: note: candidate constructor not viable: requires
+      single argument 'r', but no arguments were provided
+   33 |     D(int r) : x(r){
+      |     ^ ~~~~~
+default-constructor.cpp:27:7: note: candidate constructor (the implicit copy
+      constructor) not viable: requires 1 argument, but 0 were provided
+   27 | class D {
+      |       ^
+default-constructor.cpp:27:7: note: candidate constructor (the implicit move
+      constructor) not viable: requires 1 argument, but 0 were provided
+   27 | class D {
+      |       ^
+default-constructor.cpp:49:16: error: no matching constructor for initialization
+      of 'D'
+   49 |     D obj_d_ = D();
+      |                ^
+default-constructor.cpp:33:5: note: candidate constructor not viable: requires
+      single argument 'r', but no arguments were provided
+   33 |     D(int r) : x(r){
+      |     ^ ~~~~~
+default-constructor.cpp:27:7: note: candidate constructor (the implicit copy
+      constructor) not viable: requires 1 argument, but 0 were provided
+   27 | class D {
+      |       ^
+default-constructor.cpp:27:7: note: candidate constructor (the implicit move
+      constructor) not viable: requires 1 argument, but 0 were provided
+   27 | class D {
+      |       ^
+2 errors generated.
+#+end_src
+
+修正错误 (把有关 D 的东西直接注释掉) 之后, 运行结果
+
+#+begin_src bash
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ g++ default-constructor.cpp
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ ./a.out
+class C default constructor, fuck you cpp
+class C default constructor, fuck you cpp
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $
+#+end_src
+
+可见我们对这个东西的理解是对的, 对于 class C 来说, 这里直接调用的是 custom 的 default constructor
+
+*** (2) copy constructor
+
+copy constructor 的判定是 "函数签名层面的", 不是 "你在函数里做了什么", 对 class A 来说, copy constructor 是一个构造函数, 满足
+(1) 构造函数名是 A
+(2) 第一个参数是 const A & 类型或等价形式
+(3) 其余参数 (如果有) 都有默认值 ( 但是我们一般不考虑其他参数 )
+
+copy constructor 是在使用一个已经有的 object 对另一个新的 object 进行初始化的时候调用的, 而不是对一个已经有的 object assign value 的时候调用的 ( 这个是 operator= )
+
+对于不止一个参数的 copy constructor, 我们澄清一下:
+#+begin_src cpp
+A(const A &other, int x = 0); // copy constructor
+A(const A &other, int x);
+#+end_src
+
+第一个参数永远是 "被拷贝对象", 剩下的参数是可选的且必须有默认值, 保证无参调用时也可以调用这个函数 (因为在大多数情况下 copy constructor 会在只给一个对象的时候被调用), 如果你写了一个额外参数但不给默认值, 编译器就不再认它是 copy constructor
+
+典型形式:
+#+begin_src cpp
+// copy constructor
+A(const A& other);
+A(A const& other);
+
+// 不是 copy constructor, 即使你真的在做 copy 这个任务
+A(const A other);
+#+end_src
+
+不使用 A(const A other) 这个形式的原因是, 这里的参数是使用 value 传递的, 你要得到这个 value, 就要调用 copy constructor, 但是你的 copy constructor 又是值传递的, 这样会无限递归
+
+再次强调, copy constructor 在 "初始化新对象" 时被调用, 而不是在 assign value 的时候被调用
+
+#+begin_src cpp
+ClassName a;
+ClassName b = a;   // 不是赋值是初始化, copy constructor, 等价于 A b(a);
+b = a;  // 这个是赋值, 等价于 b.operator=(a);
+#+end_src
+
+写个小程序验证一下
+#+begin_src cpp
+#include <iostream>
+
+class aClass {
+    public:
+        int a;
+        double b;
+        aClass() {
+            ;
+        }
+
+        aClass(const aClass & another) : a(another.a), b(another.b) {
+            std::cout << "custom copy constructor called" << std::endl;
+        }
+
+        aClass operator=(const aClass & another) {
+            this->a = another.a;
+            this->b = another.b;
+            std::cout << "operator = is called" << std::endl;
+            return another;
+        }
+};
+
+int main() {
+    aClass a;
+    aClass b = a;
+    b = a;
+    return 0;
+}
+#+end_src
+
+编译运行, 得到
+#+begin_src bash
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ g++ copy-constructor.cpp
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ ./a.out
+custom copy constructor called
+operator = is called
+custom copy constructor called
+#+end_src
+
+这里有三次 copy constructor 被调用, 第三次是在 operator= 的返回的时候, 因为我们返回的类型不是 reference, 是一个 aClass 的 object, 所以这里调用了一次 copy operator, 你可以通过改写这个 operator& 的返回类型, 变成 const reference 返回, 这样就不会有多余拷贝 ( 也是标准的 reference 版的预防成为 lvalue 的 operator= 的写法 )
+
+#+begin_src cpp
+#include <iostream>
+
+class aClass {
+    public:
+        int a;
+        double b;
+        aClass() {
+            ;
+        }
+
+        aClass(const aClass & another) : a(another.a), b(another.b) {
+            std::cout << "custom copy constructor called" << std::endl;
+        }
+
+        aClass const & operator=(const aClass & another) {
+            this->a = another.a;
+            this->b = another.b;
+            std::cout << "operator = is called" << std::endl;
+            return another;
+        }
+};
+
+int main() {
+    aClass a;
+    aClass b = a;
+    b = a;
+    return 0;
+}
+#+end_src
+
+编译运行结果
+#+begin_src bash
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ ./a.out
+custom copy constructor called
+operator = is called
+#+end_src
+
+当然, 写成
+#+begin_src cpp
+aClass & operator=(const aClass & another) {
+    this->a = another.a;
+    this->b = another.b;
+    using namespace std;::cout << "operator = is called" << std::endl;
+    return *this;
+}
+#+end_src
+
+也是可以的, 这个写法非常有趣, 事实上这个就是 STL 的标准的 operator= 的写法, 返回的是 reference, 绑定的是 operator= 的 lvalue, 这个允许了 (a=b) = c 这种写法
+
+关于 implicitly-declared copy operator, 这个东西是 element-wise member copy, 就是说, 如果你的 class 有一个 attribute 是 type * ptr;, 那么他只是复制一遍 ptr 这个地址, 不会把 ptr 指向的 object 再复制一遍, 如果你已经写了一个 copy constructor, 那这样编译器就不会自动给你生成 implicitly-declared copy operator, 这样就会报错
+
+当然, 你可以使用 defaulted copy constructor, 就是像下面这样
+
+#+begin_src cpp
+struct A {
+    A(const A&) = default;
+};
+#+end_src
+
+这个意思是, 你 explicitly 要求要一个 copy constructor, 但是要求他表现的跟 implicitly-declared constructor 一样
+
+*** (3) puzzle example
+
+我们下面分析一下一个 sphere 的例子, 讲一下理论上应该怎么 behave, 实际上应该怎么样
+
+#+begin_src cpp
+#include "sphere.h"
+#include <iostream>
+
+using namespace std;
+
+namespace cs225 {
+
+  Sphere::Sphere() : Sphere(1.0) {
+    cout << "Default ctor" << endl;
+  }
+
+  Sphere::Sphere(double r) {
+    cout << "1-param ctor" << endl;
+    r_ = r;
+  }
+
+  Sphere::Sphere(const Sphere &s) {
+    cout << "copy ctor" << endl;
+    r_ = s.r_;
+  }
+
+
+  double Sphere::getRadius() const {
+    return r_;
+  }
+
+  void Sphere::setRadius(double r) {
+    r_ = r;
+  }
+
+  double Sphere::getVolume() const {
+    return (4 * r_ * r_ * r_ * 3.14159265) / 3.0;
+  }
+
+}
+#+end_src
+
+这里面的 constructor 讲明白了你在调用哪个, 然后我们实现一下 copy by value 的 函数
+
+**** a. pass by value
+
+#+begin_src cpp
+#include "sphere.h"
+#include <math.h>
+
+using namespace cs225;
+
+Sphere joinSpheres(Sphere s1, Sphere s2) {
+
+  double totalVolume = s1.getVolume() + s2.getVolume();
+
+  double newRadius = pow((3.0 * totalVolume) / (4.0 * 3.141592654), 1.0/3.0);
+
+  Sphere result(newRadius);
+
+  return result;
+}
+
+
+int main() {
+
+  Sphere *s1 = new Sphere(4);
+  Sphere *s2 = new Sphere(5);
+
+  Sphere s3 = joinSpheres(*s1, *s2);
+
+  return 0;
+}
+#+end_src
+
+理论上来说, 我们得到的应该是
+1. Sphere *s1  = new Sphere(4) 是一个 one parameter constructor
+2. Sphere *s2  = new Sphere(5) 是一个 one parameter constructor
+3. 传参是传 value, joinSpheres(*s1, *s2) 里面 *s1 和 *s2 各一次 copy constructor
+4. Sphere result(newRadius); 是一个 one parameter constructor
+5. return 的时候从 result 这个 local variable 把参数复制到 joinSpheres stack 的 return value 的值, 调用一次 copy constructor
+6. Sphere s3 = joinSpheres(*s1, *s2);, return 的值赋给 s3, 再调用一次 copy constructor
+
+跑一下验证一下:
+#+begin_src cpp
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ g++ -c -o0 sphere.cpp
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ g++ -c -o0 joinSpheres-byValue.cpp
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ g++ sphere.o joinSpheres-byValue.o -o byVaule
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $ ./byVaule
+1-param ctor
+1-param ctor
+copy ctor
+copy ctor
+1-param ctor
+~/Desktop/cs225/lecture/lecture03/code-lecture03 $
+#+end_src
+
+实际上我们猜测的后面两个 copy constructor 都没有被调用
+
+这个是因为, 在现代 cpp 中有 NRVO (Named Return Value Optimization) 优化, 这个优化的语意是这种情形的 result 直接构造在调用方的返回对象存储位置上, c++11 起, 允许后面两个 copy 不发生, c++17 起, 直接强制规定这两个 copy 不发生, 所以我们这里的 joinSpheres 里面的 result 那个对象是直接建立在 s3 上面的, 我们 gdb 进去看一看
+
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -c -g sphere.cpp
+(base) zhb:~/Desktop$ g++ -c -g byValue.cpp
+(base) zhb:~/Desktop$ g++ sphere.o byValue.o -o byValue
+(base) zhb:~/Desktop$ gdb ./byValue
+GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./byValue...
+(gdb) b main
+Breakpoint 1 at 0x1439: file byValue.cpp, line 21.
+(gdb) run
+Starting program: /home/zhb/Desktop/byValue
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) y
+Debuginfod has been enabled.
+To make this setting permanent, add 'set debuginfod enabled on' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, main () at byValue.cpp:21
+21	int main() {
+(gdb) info locals
+s1 = 0x12000
+s2 = 0x2e78786362696c67
+s3 = {r_ = 6.9533558074168272e-310}
+(gdb) p &(s3)
+$1 = (cs225::Sphere *) 0x7fffffffdec0
+(gdb) p &(s3.r_)
+$2 = (double *) 0x7fffffffdec0
+(gdb) n
+23	  Sphere *s1 = new Sphere(4);
+(gdb) n
+1-param ctor
+24	  Sphere *s2 = new Sphere(5);
+(gdb) n
+1-param ctor
+26	  Sphere s3 = joinSpheres(*s1, *s2);
+(gdb) b cs225::Sphere::Sphere(double)
+Breakpoint 2 at 0x555555555275: file sphere.cpp, line 13.
+(gdb) continue
+Continuing.
+copy ctor
+copy ctor
+
+Breakpoint 2, cs225::Sphere::Sphere (this=0x7fffffffdec0, r=5.7387935458815473) at sphere.cpp:13
+13	    cout << "1-param ctor" << endl;
+(gdb) p this
+$3 = (cs225::Sphere * const) 0x7fffffffdec0
+(gdb) exit
+A debugging session is active.
+
+	Inferior 1 [process 46315] will be killed.
+
+Quit anyway? (y or n) y
+(base) zhb:~/Desktop$
+#+end_src
+
+你会发现这个 this 指针就是 s3 的地址, 只能说老师对于这个东西的理解还是很久之前的, 现代 cpp 已经不这么做了
+
+
+**** b. pass by const value
+
+
 * Useful Tools
 
 记录一下使用到的有用的工具

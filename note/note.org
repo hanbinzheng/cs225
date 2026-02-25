@@ -24,7 +24,7 @@ constructor, default constructor ( 如果没写 constructor 会默认生成一�
 
 header file 记得 #ifndef XXXX_H 来避免重复 include
 
-convention 里面, xxx.h 放 declaration, xxx.c 里面放 definition / implementation
+convention 里面, xxx.h 放 declaration, xxx.c/xxx.cpp 里面放 definition / implementation
 
 
 * 一些有用的知识
@@ -77,7 +77,11 @@ libImath-3_1.so.29: symbolic link to libImath-3_1.so.29.8.0
 
 关于 stm32 h7 芯片物理上有哪些存储, 这些存储有哪些特点, 以及在 memory 里面这些存储是如何规划的
 下面的东西在声明我有哪些地方是合法的, 内存的哪些地方是可以放东西的
-FLASH / ROM 断电不丢失, RAM 断电丢失, SRAM: Static RAM, MCU 里面基本都是 SRAM,
+FLASH / ROM 断电不丢失, RAM 断电丢失, SRAM: Static RAM, MCU 里面基本都是 SRAM, SRAM 的 static 的意思是只要通电数据就不会丢失
+
+TCM: Tightly Coupled Memory, 它是直接挂在 CPU 内部总线上的存储空间, 专门为 cpu 服务绕过了普通外设总线(AHB/APB), cpu 访问/写极快, 他们也算 RAM, 断电也丢失
+
+注意, FLASH / ROM 不是不能写, 我们可以通过烧录去写, 下面说的不能写 ( 不能 w ) 是指不能在程序运行的时候快速的写
 
 下面是简化版的 .ld 文件, 用于展示内存布局的
 
@@ -163,7 +167,7 @@ STM32H723内存映射:
             │   .bss      │ ← 未初始化变量 ( 清零 )
             │    堆(heap) │ ← malloc 使用
             │             │
-            │    _estack  │ ← stack base/bottom, DTCM 结束, stack pointer 从这里开始向低地址生长
+            │    _estack  │ ← stack base/bottom, RAM 结束, stack pointer 从这里开始向低地址生长
 0x2008 0000 └─────────────┘
 #+end_src
 
@@ -175,6 +179,29 @@ STM32H723内存映射:
 2. static 局部变量, 一般的局部变量加上一个 static 关键字, 比如. void function(int a, int b) { static int c = a + b; }, 这个变量的作用域也是该函数内部, 即只有该函数内部才能访问这个变量, 但是这个变量的生命周期是整个程序执行的时间, 主要放在 .data/.bss 段 ( 取决于有没有初始化 )
 3. 全局变量, 如直接写在 .c 文件里 ( 不在任何一个函数内部 ), 作用域是全部程序 ( 注意, 如果 local variable 和 global variable 重名, 那在函数内使用的是 local 的 ), 即任何一个程序都可以访问 ( 使用这个全局变量的程序要有 extern 关键字声明这个变量存在 ), 否则无法直接使用, 这个东西的储存位置在 .bss 或者 .data 段 ( 取决于有没有初始化 ), 生命周期是整个程序的执行时间, 注意, 全局变量的名字不能重复
 4. static 全局变量, 跟全局变量唯一的区别是作用域被限定为了这个 .c 文件, 只有这个文件里的函数可以使用
+
+** c 指针数组类型判断
+
+我们要从运算符的角度去理解 c 里面的类型判断, 根据变量的优先级判断
+
+先说明白一下, a[i] 里面的 [] 运算符相当于 *(a + i), 他的优先级是高于 * 运算符的
+
+1. int *p;
+   对变量 p 进行 * 运算, 得到的是 (*p), 也就是说读取 p 这个地址里存的东西得到的是一个 int, 所以 p 是一个指向 int 的指针
+
+2. int a[10];
+   0 ～ 9 里面的任意一个数字 i, 对变量 a 进行 a[i] 运算, 得到的是一个int, 所以说 a 是一个长度为10的数组
+
+3. int *a[10];
+   运算优先级上 [] 高于 *, 因为 a[i] 是*(a + i), 这里有一个括号, *(*(a + i)) 得到的是一个 int, 所以说 a 首先是一个数组, 然后对 a 进行 (*(a + i)) 得到的是 int * 类型, 即指向 int 的指针, 然后再 *, 得到 int, 所以说 a 是一个存了10个int* 变量的数组
+
+4. int (*p)[10];
+   这里的时候我们先进行的是 * 这个运算, 对 (*p) 得到的结果在进行 [] 运算, 即(*p)[i] 得到的是 int, 所以说 (*p) 是一个数组的首地址, 或者说是一个数组, p就是一个指向数组的指针
+
+   也就是说大概是这样的, int a[10];, 然后 int (*p) [i] = &a;
+
+5. 往下叠 buff...
+   上面差不多讲清楚了, 然后就可以根据运算的优先级, 爱咋叠 buff 咋叠 buff 了
 
 ** c关键字和 GCC 提示指令
 1. extern
@@ -329,7 +356,7 @@ STM32H723内存映射:
 3. 按照声明顺序初始化所有数据成员 ( 始化的顺序是成员的声明顺序, 如果有初始成员列表, 使用初始成员列表的值进行初始化, 没有则默认  )
 4. 执行构造函数体 ( 注意, 是构造函数题, 不是构造函数 )
 
-初始成员列表性能上比赋值的办法快, 而且对于一些 const 的变量, 只能使用初始成员列表来做, 还有 reference 也只能用初始成员列表的办法初始化 ( 本质上也是个 const )
+初始成员列表性能上比赋值的办法快, 而且对于一些 const 的变量, 只能使用初始成员列表来做, 还有 reference 也只能用初始成员列表的办法初始化 ( reference 是 "语意上的一个 object ", 只有在初始化的时候表示 "指向哪个对象/内存地址", 后面的 = 都是改变那片内存地址上的对象的值 )
 
 #+begin_src cpp
 class MyClass {
@@ -345,7 +372,7 @@ public:
         name = n;          // name已经调用了 name 的默认构造函数, 即已经初始化了, 这里实际是 operator= 赋值
         id = i;            // 基本类型重新赋值, 影响比较小
         // version = v;    // const 的变量已经被初始化了, 这里是赋值, 但是 const 不能赋值
-        // ref_vec = vec;  // reference 本质上是 const 指针, 理由同 const
+        // ref_vec = vec;  // reference 可以理解成 const 指针, 或者根本的, 就没有 "reference" 这种类型, reference 就是对象本身, 哪个对象是初始化的时候就确定了
     }
 
     // 使用初始成员列表
@@ -365,9 +392,39 @@ public:
 
 *** reference
 
-在底层就是 const pointer, 比如说 int & a = b;, 这个初始化操作在底层就是一个 int * const a = &b;, 然后之后在 cpp 里面我们每次用到 reference 的时候, 我们做的实际上都是对这个 const pointer 做引用, 然后指针的值 (b这个变量的地址) 是不能变的 ( const 修饰 ), 换句话说, 指向哪里不能再变了, 但是指向的地址存的值是可以改变的
+reference 就是指向的那个 object, 只是语意上换了一个东西表示, 这让你可以操作底层的东西而无需使用指针, 你可以把它在底层理解成一个 const pointer ( int * const, 而不是 int const *, 换句话说, 指向哪里不能再变了, 但是指向的地址存的值是可以改变的 ), 但是实际上并没有那么一个变量, 编译器在看到 reference 变量的时候就只会把它当作 "该对象本身", 想象中等同于一个 * pointer 的感觉, 但是要记住实际上没有那么一个临时pointer变量
 
-这个就是为什么我们在初始化一个 class 的 reference 变量的时候要使用初始成员列表的方式初始化了
+
+#+begin_src cpp
+int main() {
+	int a = 0;
+	int & b = a;
+
+	std::cout << "&a: " << &a << std::endl;
+	std::cout << "&b: " << &b << std::endl;
+
+	b = 100;
+	std::cout << "a = " << a << std::endl;
+	std::cout << "b = " << b << std::endl;
+
+	return 0;
+}
+#+end_src
+
+结果是:
+#+begin_src bash
+zhb ~/Desktop % ./a.out
+&a: 0x16bcfed88
+&b: 0x16bcfed88
+a = 100
+b = 100
+#+end_src
+
+这就是为什么我们要在初始化成员列表里面初始化 reference 了, 因为初始化的时候流程是:
+1. 分配空间
+2. 如果有 inheritance, 那么初始化 base class 的
+3. 对于本 class 的每一个 attribute 进行默认初始化 ( reference 这里被初始化了, 但是默认初始化的时候没有指定对象是什么, 所以这个 reference 是没法用的 ), 你可以通过初始列表去干预这里, 比如说委托构造, 或者初始化成员列表
+4. 执行函数体
 
 *** operator
 
@@ -391,6 +448,12 @@ bool c = (a == b); // a and b are PNG type objects
 bool c = q.operator==(b);
 #+end_src
 
+[cv] (const / volatile): 最常见的是 const, 如果你写 bool operator==(const Sphere& other) const;, 最后的那个 const 意味着这个运算符不会修改当前对象, 如果你有一个 const Sphere s1，它只能调用带 const 修饰的成员函数/运算符
+
+[ref] (& / &&) —— 引用限定符 (cpp11): 它限制了运算符是给“左值”用还是“右值”用, &: 只能由 lvalue 调用, &&: 只能由rvalue调用
+
+[noexcept] (C++11): 告诉编译器这个运算保证不会抛出异常, 编译器看到这个后会进行极致优化, 对于移动构造函数和移动赋值运算符来说加上 noexcept 非常关键
+
 *** inheritance
 
 忘记了, 暂时还没碰到, 先放着, 碰到了学了再写
@@ -404,7 +467,7 @@ bool c = q.operator==(b);
 
 ** more on constructor
 
-可以在 default constructor 里面调用 custom constructor 去完成 initialization, 叫做委托构造函数
+可以在 default constructor 里面调用 custom constructor 去完成 initialization, 叫做委托构造函数 ( delegating constructor )
 
 #+begin_src cpp
 #include "sphere.h"
@@ -431,20 +494,39 @@ Constructor
 }
 #+end_src
 
-这里面的每一个 initializer 可以是下面两者之一: 1. list initialization, 2. delegating initialization
+这里面的 initializer 可以是下面两者之一: 1. list initialization, 2. delegating initialization
+
+但是你只能选择 list initialization 或者 delegating initialization, 不能同时两者
 
 再强调一遍 cpp object 的初始化过程:
 1. 分配内存
-2. 初始化成员 ( 只能在 initializer list 的地方干预, 否则就是执行每一个东西的默认的初始化 )
+2. 执行 constructor initializer list 的相关内容 ( 只能在 initializer list 的地方干预, 否则就是执行每一个东西的默认的初始化 )
 3. 执行构造函数体 {}
 
 这个冒号后面的地方是我们唯一可以干预的地方
 
 凡是 "对象一出生就必须确定的东西", 只能写在 : 后面, 比如 const, reference, delegating construction, base class object
 
+注意区分初始化成员列表和委托构造函数, 初始化成员列表和委托构造函数的语法一摸一样, 但是你只能选择初始化成员列表或者委托构造函数中的一种, 一个是直接初始化成员, 另一个是委托给另一个构造函数
+
 体会一下 cpp 的哲学 RAII:
 RAII = Resource Acquisition Is Initialization
 资源的获取 = 对象的初始化, 资源的释放 = 对象的析构
+
+** stack & heap, RAII
+
+一个从低地址向高地址增长 ( heap ), 一个从高地址向低地址增长 ( stack )
+
+注意, cpp 里面不用 malloc 和 free, 用的是 new 和 delete, 其中 new 和 malloc 还不一样, new 分配地址 + 调用初始化函数, 但是 malloc 是只有分配地址, delete 会调用 destructor 同时释放内存
+
+pain point 是如果你忘记了 delete 会内存泄漏, 如果 new 之后代码抛出错误, 还没运行到 delete 内存也会泄露, 还有对同一个指针 delete 两次会导致崩溃
+
+从 cpp11 开始 ( 并在 Cpp14/17 中完善), 我们提倡 RAII ( 资源获取即初始化 ), 简单说就是用一个对象来包装原始指针, 当这个对象"死"掉 ( 离开作用域 ) 时, 它会自动在析构函数里帮我们调用 delete
+RAII: Resource Acquisition Is Initialization,
+资源获取 = 对象初始化, 资源释放 = 对象析构,
+RAII 的核心只有一句话: 把资源的生命周期绑定到一个栈对象的生命周期上
+
+当然现代有了 smart pointers, 比如 unique_ptr, 还有 shared_ptr, 这个以后碰到了再写
 
 ** memory location 重温
 
@@ -570,15 +652,30 @@ s->getRadius(): 4.17291e-314
  v (main): 0
 #+end_src
 
-ubuntu 24.04 上面
+只能说两个表现很不一样了, 两个东西的 UB 还有 stack behavior 完全不一样呢, UB 就是完全 Undefined, 啥都有可能发生 ( compiler 的 preference 了 )
+
+我还发现 ubuntu 和 mac 的 run time stack 的生长方向好像不一样, 先创建的 variable 在 mac 上是在高地址, 但是在 ubuntu 上是低地址:
+ubuntu:
 #+begin_src bash
-(base) zhb:~/Desktop/code-lecture02$ ./bad_2
-Segmentation fault (core dumped)
+(gdb) print &s
+$1 = (cs225::Sphere **) 0x7fffffffddc8
+(gdb) print &r
+$2 = (double *) 0x7fffffffddd0
+(gdb) print &v
+$3 = (double *) 0x7fffffffddd8
+(gdb) step
+#+end_src
+mac:
+#+begin_src zash
+&s (main): 0x16d7d2d18
+ s (main): 0x16d7d2cb8
+&r (main): 0x16d7d2d10
+ r (main): 4.17291e-314
+&v (main): 0x16d7d2d08
+ v (main): 0
 #+end_src
 
-只能说两个表现很不一样了, 两个东西的 UB 还有 stack behavior 完全不一样呢
-
-我 check 了一下这个东西, 发现确实, 我的 ubuntu 和 mac 的 run time stack 的生长方向是不一样的
+还有一个例子:
 
 #+begin_src cpp
 #include <iostream>
@@ -621,7 +718,7 @@ int main() {
 ~/Desktop/cs225/lecture/lecture02/code-lecture02 $
 #+end_src
 
-发现这个好像并不是我们在 lc3 里面学到的那样, 先 declare 的先 pop, 我们再写个东西 check 一下
+这下两个一样了, 但是我发现这个顺序好像并不是我们在 lc3 里面学到的那样先 declare 的先 push, 我们再写个东西 check 一下
 
 #+begin_src cpp
 #include <iostream>
@@ -682,6 +779,13 @@ run time stack 确实是从高地址往低地址增长的
 reference: an alias of an existing object
 
 之前一直使用的是 const pointer 的角度去理解这个 reference, 这样是有问题的, reference 实际上真的就是一个 alias, 是在编译器处理阶段就解决的, 并不是分配了一个 const pointer 类型的 variable, 或者说, reference variable 根本就不是一个 variable, 并没有真的在 stack 或者 heap 上面分配内存给这个 reference variable, 这个似乎是有点像 macro, 就是在编译的时候就直接结束了, 他就真的只是这个变量的一个 alias
+
+一个 reference 的基本要求是:
+- Must be initialized when declared.
+- Cannot be reassigned to refer to a different object.
+- No null references.
+
+如果在被创建的时候没有被初始化, 会直接编译错误, 而不是 Undefined Behavior
 
 这个是验证代码
 #+begin_src cpp
@@ -747,6 +851,100 @@ void function(const Class * pointer), 这个写法也等价于 void function (Cl
 void function(const Class & reference), 等价于 void function(Class const & reference), 这个 const 表示这个 reference alias 指向的那个 object 是不可以改变的, 但是因为你的 reference 在初始化之后就不能重新绑定了, 所以实际上你的 reference 也不能当另一个 object 的 alias
 
 所以我们一般在传递参数的时候, 因为 reference 不可重新绑定的特性, 以及 const 关键字修饰表示这个 reference 绑定的 object 不能被改变, 所以说 void function(const class_name &object); 的传参方式是最安全的
+
+*** (3) tricky example
+
+因为 pass by reference + const 的安全特性, 他对调用 const reference 的函数也做出了要求, 他要求这个函数不会改变 const reference 这个 object 而这个很容易被忘记, 一个比较 tricky 的 example 如下:
+
+sphere.cpp
+#+begin_src cpp
+#include "sphere.h"
+#include <math.h>
+
+Sphere::Sphere(double r) : r_(r) {
+    ;
+}
+
+double Sphere::getVolume() {
+    return (4.0 / 3.0 * 3.141592654 * pow(r_, 3));
+}
+
+Sphere joinSpheres(const Sphere s1, const Sphere s2) {
+    double totalVolume = s1.getVolume() + s2.getVolume();
+    double newRadius = pow(
+        (3.0 * totalVolume) / (4.0 * 3.141592654),
+        1.0/3.0);
+    Sphere result(newRadius);
+    return result;
+}
+#+end_src
+
+main.cpp
+#+begin_src cpp
+#include "sphere.h"
+
+int main() {
+    Sphere *s1 = new Sphere(4);
+    Sphere *s2 = new Sphere(5);
+    Sphere s3 = joinSpheres(*s1, *s2);
+    delete s1; s1 = nullptr;
+    delete s2; s2 = nullptr;
+    return 0;
+}
+
+#+end_src
+
+直接编译会有编译错误:
+#+begin_src bash
+zhb ~/Desktop % g++ -std=c++11 -c -g sphere.cpp
+sphere.cpp:13:26: error: 'this' argument to member function 'getVolume' has type 'const Sphere', but function is not marked const
+   13 |     double totalVolume = s1.getVolume() + s2.getVolume();
+      |                          ^~
+sphere.cpp:8:16: note: 'getVolume' declared here
+    8 | double Sphere::getVolume() {
+      |                ^
+sphere.cpp:13:43: error: 'this' argument to member function 'getVolume' has type 'const Sphere', but function is not marked const
+   13 |     double totalVolume = s1.getVolume() + s2.getVolume();
+      |                                           ^~
+sphere.cpp:8:16: note: 'getVolume' declared here
+    8 | double Sphere::getVolume() {
+      |                ^
+2 errors generated.
+#+end_src
+
+这个是因为, 在函数 joinSpheres 里面, 我们传递的参数是 const reference, 也就是说, 我们要求不修改传入的 object, 但是在 class Sphere 的 member function getVolume 里面, 我们并没有给 getVolume 加上 const 关键字 ( 保证 *this 里面的任何一个 attribute 都不变 ), 但是在 joinSpheres 里面我们调用了 s1.getVolume() 和 s2.getVolume(), 所以编译器报错了
+
+加上 const 关键字修饰 getVolume 以后就可以正常编译了:
+
+sphere.cpp
+#+begin_src cpp
+#include "sphere.h"
+#include <math.h>
+
+Sphere::Sphere(double r) : r_(r) {
+    ;
+}
+
+double Sphere::getVolume() const {
+    return (4.0 / 3.0 * 3.141592654 * pow(r_, 3));
+}
+
+Sphere joinSpheres(const Sphere s1, const Sphere s2) {
+    double totalVolume = s1.getVolume() + s2.getVolume();
+    double newRadius = pow(
+        (3.0 * totalVolume) / (4.0 * 3.141592654),
+        1.0/3.0);
+    Sphere result(newRadius);
+    return result;
+}
+#+end_src
+
+#+begin_src bash
+zhb ~/Desktop % g++ -std=c++11 -c -g sphere.cpp
+zhb ~/Desktop % g++ -std=c++11 -c -g main.cpp
+zhb ~/Desktop % g++ main.o sphere.o -o executable
+#+end_src
+
 
 ** 2. 重识 constructor
 
@@ -872,6 +1070,8 @@ copy constructor 的判定是 "函数签名层面的", 不是 "你在函数里�
 
 copy constructor 是在使用一个已经有的 object 对另一个新的 object 进行初始化的时候调用的, 而不是对一个已经有的 object assign value 的时候调用的 ( 这个是 operator= )
 
+Automatic Copy Constructor 对 pointer 只是进行了 shallow copy, 所以如果你需要 copy 这个 pointer 指向的地址的内容的话, 你需要自己写 custom copy constructor
+
 对于不止一个参数的 copy constructor, 我们澄清一下:
 #+begin_src cpp
 A(const A &other, int x = 0); // copy constructor
@@ -993,7 +1193,7 @@ aClass & operator=(const aClass & another) {
 
 也是可以的, 这个写法非常有趣, 事实上这个就是 STL 的标准的 operator= 的写法, 返回的是 reference, 绑定的是 operator= 的 lvalue, 这个允许了 (a=b) = c 这种写法
 
-关于 implicitly-declared copy operator, 这个东西是 element-wise member copy, 就是说, 如果你的 class 有一个 attribute 是 type * ptr;, 那么他只是复制一遍 ptr 这个地址, 不会把 ptr 指向的 object 再复制一遍, 如果你已经写了一个 copy constructor, 那这样编译器就不会自动给你生成 implicitly-declared copy operator, 这样就会报错
+关于 implicitly-declared copy constructor, 这个东西是 element-wise member copy, 就是说, 如果你的 class 有一个 attribute 是 type * ptr;, 那么他只是复制一遍 ptr 这个地址, 不会把 ptr 指向的 object 再复制一遍, 如果你已经写了一个 copy constructor, 那这样编译器就不会自动给你生成 implicitly-declared copy constructor, 这样就会报错
 
 当然, 你可以使用 defaulted copy constructor, 就是像下面这样
 
@@ -1180,8 +1380,173 @@ Quit anyway? (y or n) y
 
 你会发现这个 this 指针就是 s3 的地址, 只能说老师对于这个东西的理解还是很久之前的, 现代 cpp 已经不这么做了
 
-
 **** b. pass by const value
+
+不想写了, 自己跑一下 lecture/lectore03/code-lecture03 里面的 demo 吧, 我感觉上面的已经分析的很清楚了, ppt 里面也有, 相信如果上面 pass by value 的例子看懂之后你一定是会的
+
+
+* lecture 04
+
+这节课的核心是 resource management, 主要是一些概念上的介绍, coding 和 hardware 层面的东西比较少
+
+或者说, 我前面 lecture 01/02/03 还有知识铺垫做的比较全面导致这里似乎没有那么多具体知识点可以讲 🤪
+
+the rule of three 实际上可以扩展到 the rule of five ( 算上 movement constructor 还有 movement assign operator, 为 cpp11 往后的语言特性设计的 ), 这个以后碰到了再说
+
+这里要开始着重体会 cpp 里面的设计哲学 RAII (resource acquaintance is initialization)
+
+还有说一下, in cpp, never copy code, 要抽象逻辑然后复用, copy code 的时候你大概率是做错了 ( 比如对于 copy constructor 和 operator=, 里面都涉及从一个 object 创建/修改另一个 object, 可以把这个逻辑抽象为 copy_ 作为一个 private 函数, 然后在 copy constructor 和 operator= 里面调用这个 private member function copy_ )
+
+** 1. destructor
+
+the last function being called for an existing instance before it appears, the purpose is to cleanup this resource
+
+当一个 object 被创建的时候, constructor 被 called, 当一个 object 被 destroyed 的时候, 有一些东西也要被 called, 这个东西就是 destructor, 注意 destructor 没有 manually called 的情况, 他就是 automatically called, like your object is deleted from the heap, or gets out of scope on the stack, 你永远不应该 manually call destructor
+
+至于一个 object 什么时候被 destroyed? 当一个 object 的生命周期结束了, 他就会被 destroyed
+
+default destructor is provided, and it has no parameters, 语法是跟 classname 同名, 但是多一个 ~, 没有任何参数
+
+#+begin_src cpp
+class Sphere {
+    public:
+        Sphere(); // default constructor
+        ~Sphere(); // destructor
+}
+#+end_src
+
+default destructor 又叫 Implicitly-defined Destructor, 它的函数体是空的 {}, 他的行为是会自动且递归地调用类中所有成员变量的析构函数以及基类的析构函数, 对于基本类型 ( int, double, ..) 的指针, 他并不会 delete [] 指针指向的东西, 这个就很灾难了, memory leakage, surprise!!!
+
+编译器认为指针只是一个数值 ( address ), 它不知道这个地址背后是一块需要手动释放的资源, 这就是为什么你必须自定义析构函数并调用 delete
+
+** 2. operator
+*** (1) 基本的 operator overload
+
+cpp 里面可以 overload 很多 operator, 语法设计和逻辑在 cpp 入门特性/operator 那里讲过了, 不再重提, 这里列举一下可以被 overload 的 operator
+
+arithmetics: + - * / % ++ --
+bitwise: & | ^ ~ << >>
+assignment: =
+comparison: == != > < >= <=
+logic: ! && ||
+other: [] () ->
+
+这节课的重点是在说 resource management, 所以我们着重重新讲一下 assignment operator
+
+*** (2) operator=
+
+如果我不写 operator=, 只要你的类里没有一些极端情况 ( 比如包含 const 成员或引用成员, 这些不可更改), 编译器会自动生成一个默认的赋值运算符
+
+自动实现的函数签名是:
+
+#+begin_src cpp
+T& T::operator=(const T& other) {
+    // assignment logic
+    return *this; // 默认的 behavior 是返回 operator= 的 lvalue 的 reference
+}
+#+end_src
+
+这个 implicitly-defined copy assignment operator 的行为是执行 member-wise assignment, 也就是说它对类中的每个成员调用其对应的 operator=
+
+对于内置类型 (int, 指针), 它执行的是 shallow copy, 这个很容易造成混乱
+
+我们自己写 assignment operaotr 的时候, 要遵循上面的函数签名的写法, 里面实现的逻辑可以改, 但是函数签名一定要是这个
+
+下面讲一下为什么会选择使用上面描述的函数签名
+
+最主要的原因是, 在 cpp 里面 built in class 的 assignment 返回的都是 reference to the object itself, 我们需要 matching 这个操作
+
+cpp 里面, a = b 返回的是 a reference to object a, 也就是 a reference to the lvalue of the operator =, 这个是一个 convention, 尽管你可以随便定义
+
+下面讲解一下逻辑:
+
+首先确定一下, 我们要么 return object, 要么 return reference, 不会 return pointer 的, 因为 return pointer 的话类型对不上, 很不合理
+其次, 我们如果只是希望 return value 做 rvalue 的话 ( 也就是说, 你只会写 a = (b = c); 不会写 (a = b) = c; ), 那 return object 和 return reference 都可以, return object 会多一次创建对象 ( 因为有  NRVO, 即 Named Return Value Optimization 的存在, 所以不会 copy construct 好多次, 但是 construct 一次是不可避免的 ), 所以不如直接 return const reference
+但是如果我们希望 return value 也能做 lvalue 的话 ( 也就是说你希望 a = (b = c) 和 (a = b) = c 都是合法的 ), 那 return object 是不行的, 我们只能 return reference 了, return 的一般是 *this, 也就是说 operator= 的 lvalue 这个 object, 因为一般我们 operator= 的 rvalue 是不希望被改变的, 所以我们一般传参传的是 const class_name & another, 我们希望 return value 做 lvalue 的话返回这个肯定是不行的 ( 还有就是这个 parameter 是 const reference, 不是 reference, 编译的时候实际会报错 )
+
+** 3. the rule of three
+*** (1) The rule of three
+看上面的 implicitly-declared operator=/destructor 的表现 ( shallow copy 还有把内置类型的指针当作一般数值而不 delete ), 我们知道的是, 一旦我们 new 了东西我们就不能相信这个默认的 destructor/operator=, 我们要自己处理, 实际上这个情景要求我们同时自己实现 copy constructor, operator=, destructor, 或者说, 一旦我们需要实现这三者的任何一个, 我们基本就要把这三者都实现, 这个就是 the rule of three
+
+the rule of three 的具体含义:
+
+#+begin_quote
+如果你发现你的类需要手动实现以下任意一个函数, 那么你极大概率需要同时实现剩下两个:
+- Destructor: 释放资源
+- Copy Constructor: 确保拷贝时资源也被正确处理
+- Copy Assignment Operator: 确保赋值时旧资源释放，新资源拷贝
+#+end_quote
+
+这个是 RAII 的具体体现, 或者说是 cpp 下管理资源的具体体现
+
+当然还有 the rule of five, 还有 the rule of zeor, the rule of three 是自己裸的手动管理资源的时候要做的, 当涉及智能指针了之后会有不一样的地方
+
+*** (2) The Rule of Five:
+#+begin_quote
+If it is necessary to define any one of these three functions in a class, it will be necessary to define all five of these functions:
+- Copy constructor
+- Assignment operator
+- The destructor
+- Move constructor
+- Move assignment operator
+#+end_quote
+
+对于 move constructor 还有 move assignment operator, 这里只做简要讲解:
+
+Move Constructor (Steals resources from a temporary instead of copying), syntax: Sphere(const Sphere&& s);
+Move Assignment (Releases current resources, then takes ownership from s), syntax: Sphere & operator=(const Sphere&& s);
+
+**** move constructor & move assignment operator
+下面是 gemini 的讲解, 我觉得很对, 就直接 copy 过来了:
+
+move constructor 和 move assignment operator 不展开讲了, 以后碰到再说, 他解决的问题是 "原先资源的传递只能 copy 所有内容, 效率极低", Move的用途就在于不申请新内存不拷贝数据, 而是直接将源对象内部的指针 "偷" 过来并将源对象的指针置空 (nullptr), 这本质上是将昂贵的深拷贝降级为极其廉价的指针赋值
+
+Move Constructor: 它的参数是一个 右值引用 (T&&), 右值引用告诉编译器 "这个源对象是一个临时的快要死掉的东西, 你可以随便蹂躏它的内部成员"
+实现逻辑:
+1. 接管资源: 将源对象的指针成员直接赋值给当前对象的指针
+2. 切断联系(关键): 将源对象的指针设为 nullptr, 这一步至关重要, 否则源对象析构时会 delete 掉你刚刚“偷”过来的内存 ( 触发 RAII 保护机制 )
+#+begin_src cpp
+// 假设 Sphere 内部有一个 double* data_
+Sphere(Sphere&& other) noexcept {
+    this->data_ = other.data_;  // 指针拷贝
+    other.data_ = nullptr;      // 令源对象失去所有权防止析构时释放内存
+}
+#+end_src
+
+Move Assignment Operator: 签名通常是 Sphere& operator=(Sphere&& other) noexcept;
+实现逻辑上, 移动赋值比移动构造多了一步，因为它必须处理当前已经持有的资源
+1. 自赋值检查: 判断 this == &other
+2. 释放旧资源: delete 掉当前对象原本持有的堆内存 ( 防止泄漏 )
+3. 转移所有权: 同移动构造, 把 other 的指针拷贝过来
+4. 源对象置空: other.data_ = nullptr
+5. 返回 *this
+#+begin_src cpp
+Sphere& operator=(Sphere&& other) noexcept {
+    if (this != &other) {
+        delete data_;           // 1. 扔掉自己的旧货
+        data_ = other.data_;    // 2. 偷别人的新货
+        other.data_ = nullptr;  // 3. 让别人彻底放手
+    }
+    return *this;
+}
+#+end_src
+
+为什么必须加 noexcept？
+
+在嵌入式开发或高性能场景中这非常重要, 像 std::vector 这种容器在扩容 (reallocate) 时, 如果你的移动构造函数没有标记 noexcept, 它为了保证强异常安全性会退而求其次使用拷贝构造, 如果你忘了加 noexcept 你写的移动逻辑可能永远不会被调用, 导致性能大幅下降
+
+*** (3) The Rule of Zero
+
+从 the rule of five, 我们可以得到一个 collary, 即 "The Rule of Zero": 你的类应该尽量不手动编写任何一个上述五个函数, 因为容易出错
+
+这怎么做到？ 利用 RAII 对象, 如果你的类成员全部是 "知道如何管理自己" 的对象 ( 比如 std::vector, std::string, std::unique_ptr ), 编译器生成的默认行为就完全正确
+
+#+begin_quote
+Classes that declare custom destructors, copy/move constructors or copy/move assignment operators should deal exclusively with ownership. Other classes should not declare custom destructors, copy/move constructors or copy/move assignment operators.
+
+–Scott Meyers
+#+end_quote
+
 
 
 * Useful Tools

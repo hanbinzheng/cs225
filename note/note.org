@@ -1548,6 +1548,263 @@ Classes that declare custom destructors, copy/move constructors or copy/move ass
 #+end_quote
 
 
+* lab_intro && lab_debug
+
+做这两个 lab 的时候感觉还是学到了很多东西的
+
+** cs 里面没有 magic
+
+这里记录一个我在做 lab_intro 的时候感觉错了的地方, 后来发现没有问题, 是我还停留在 c 下面, 没有熟悉 cpp 的特性
+
+main.cpp
+#+begin_src cpp
+int main() {
+  cs225::PNG png, result;
+
+  png.readFromFile("alma.png");
+  result = grayscale(png);
+  result.writeToFile("out-grayscale.png");
+
+  return 0;
+}
+#+end_src
+
+PNG.cpp
+#+begin_src cpp
+namespace cs225 {
+  PNG::PNG() {
+    width_ = 0;
+    height_ = 0;
+    imageData_ = NULL;
+  }
+
+  bool PNG::readFromFile(string const & fileName) {
+    vector<unsigned char> byteData;
+    unsigned error = lodepng::decode(byteData, width_, height_, fileName);
+
+    if (error) {
+      cerr << "PNG decoder error " << error << ": " << lodepng_error_text(error) << endl;
+      return false;
+    }
+
+    delete[] imageData_;
+    imageData_ = new HSLAPixel[width_ * height_];
+
+    for (unsigned i = 0; i < byteData.size(); i += 4) {
+      rgbaColor rgb;
+      rgb.r = byteData[i];
+      rgb.g = byteData[i + 1];
+      rgb.b = byteData[i + 2];
+      rgb.a = byteData[i + 3];
+
+      hslaColor hsl = rgb2hsl(rgb);
+      HSLAPixel & pixel = imageData_[i/4];
+      pixel.h = hsl.h;
+      pixel.s = hsl.s;
+      pixel.l = hsl.l;
+      pixel.a = hsl.a;
+    }
+
+    return true;
+  }
+}
+#+end_src
+
+lodepng.cpp
+#+begin_src cpp
+#ifdef LODEPNG_COMPILE_DECODER
+
+unsigned decode(std::vector<unsigned char>& out, unsigned& w, unsigned& h, const unsigned char* in,
+                size_t insize, LodePNGColorType colortype, unsigned bitdepth)
+{
+  unsigned char* buffer;
+  unsigned error = lodepng_decode_memory(&buffer, &w, &h, in, insize, colortype, bitdepth);
+  if(buffer && !error)
+  {
+    State state;
+    state.info_raw.colortype = colortype;
+    state.info_raw.bitdepth = bitdepth;
+    size_t buffersize = lodepng_get_raw_size(w, h, &state.info_raw);
+    out.insert(out.end(), &buffer[0], &buffer[buffersize]);
+    lodepng_free(buffer);
+  }
+  return error;
+}
+
+unsigned decode(std::vector<unsigned char>& out, unsigned& w, unsigned& h,
+                const std::vector<unsigned char>& in, LodePNGColorType colortype, unsigned bitdepth)
+{
+  return decode(out, w, h, in.empty() ? 0 : &in[0], (unsigned)in.size(), colortype, bitdepth);
+}
+
+unsigned decode(std::vector<unsigned char>& out, unsigned& w, unsigned& h,
+                State& state,
+                const unsigned char* in, size_t insize)
+{
+  unsigned char* buffer = NULL;
+  unsigned error = lodepng_decode(&buffer, &w, &h, &state, in, insize);
+  if(buffer && !error)
+  {
+    size_t buffersize = lodepng_get_raw_size(w, h, &state.info_raw);
+    out.insert(out.end(), &buffer[0], &buffer[buffersize]);
+  }
+  lodepng_free(buffer);
+  return error;
+}
+
+unsigned decode(std::vector<unsigned char>& out, unsigned& w, unsigned& h,
+                State& state,
+                const std::vector<unsigned char>& in)
+{
+  return decode(out, w, h, state, in.empty() ? 0 : &in[0], in.size());
+}
+
+#ifdef LODEPNG_COMPILE_DISK
+unsigned decode(std::vector<unsigned char>& out, unsigned& w, unsigned& h, const std::string& filename,
+                LodePNGColorType colortype, unsigned bitdepth)
+{
+  std::vector<unsigned char> buffer;
+  unsigned error = load_file(buffer, filename);
+  if(error) return error;
+  return decode(out, w, h, buffer, colortype, bitdepth);
+}
+#endif /* LODEPNG_COMPILE_DECODER */
+#endif /* LODEPNG_COMPILE_DISK */
+#+end_src
+
+lodepng.h
+#+begin_src cpp
+#ifdef LODEPNG_COMPILE_DECODER
+/*Same as lodepng_decode_memory, but decodes to an std::vector. The colortype
+is the format to output the pixels to. Default is RGBA 8-bit per channel.*/
+unsigned decode(std::vector<unsigned char>& out, unsigned& w, unsigned& h,
+                const unsigned char* in, size_t insize,
+                LodePNGColorType colortype = LCT_RGBA, unsigned bitdepth = 8);
+unsigned decode(std::vector<unsigned char>& out, unsigned& w, unsigned& h,
+                const std::vector<unsigned char>& in,
+                LodePNGColorType colortype = LCT_RGBA, unsigned bitdepth = 8);
+#ifdef LODEPNG_COMPILE_DISK
+/*
+Converts PNG file from disk to raw pixel data in memory.
+Same as the other decode functions, but instead takes a filename as input.
+*/
+unsigned decode(std::vector<unsigned char>& out, unsigned& w, unsigned& h,
+                const std::string& filename,
+                LodePNGColorType colortype = LCT_RGBA, unsigned bitdepth = 8);
+#endif /* LODEPNG_COMPILE_DISK */
+#endif /* LODEPNG_COMPILE_DECODER */
+
+#ifdef LODEPNG_COMPILE_DECODER
+/* Same as other lodepng::decode, but using a State for more settings and information. */
+unsigned decode(std::vector<unsigned char>& out, unsigned& w, unsigned& h,
+                State& state,
+                const unsigned char* in, size_t insize);
+unsigned decode(std::vector<unsigned char>& out, unsigned& w, unsigned& h,
+                State& state,
+                const std::vector<unsigned char>& in);
+#endif /*LODEPNG_COMPILE_DECODER*/
+#+end_src
+
+你看, 在 main.cpp 里面, 我们的 default constructor 会给 image_data 赋 nullptr, 给 width_ 和 height_ 赋 0, 然后我们用了 png.readFromFile("alma.png"), 然后去看这个函数的源代码, 发现这里面使用了 decode 函数  unsigned error = lodepng::decode(byteData, width_, height_, fileName); 然后后面就直接 imageData_ = new HSLAPixel[width_ * height_], 按照 c 里面的想法这里就 new 了 0 个, 因为 width_ 和 height_ 是没有办法改变的, 但是 cpp 里面有 reference, 然后我们去看 decode 的源代码, 发现确实是这样, 我们用的是 reference
+
+但是又有一个问题, 在 PNG.cpp 里面我们使用的 decode 和 lodepng.cpp 里面任何一个 decode 函数的函数签名都不一样, 自然怀疑到 default value, 然后去看 hpp 文件, 果然如此
+
+这里强调一点, 默认参数必须且只能在函数的首次声明中出现, 通常就是放在 .h 文件里
+
+cs 里面没有 magic, 你以为的 magic 都是 human design
+
+** debugging workflow
+
+#+begin_quote
+cs 225 的第二个 lab lab_debug 给出了一个很好的 debug 的方法
+From: DEBUGGING: The 9 Indispensable Rules for Finding Even the Most Elusive Software and Hardware Problems by David J. Agans
+#+end_quote
+
+*** 1. Understand the System.
+
+- Without a solid understanding of the system (the system defined as being both the actual machine you are running on as well as the general structure behind the problem you are trying to solve), you can’t begin to narrow down where a bug may be occurring. Start off by assembling knowledge of:
+  - What the task is
+  - What the code’s structure is
+  - What the control flow looks like
+  - How the program is accomplishing things (library usage, etc)
+- When in doubt, look it up—this can be anything from using Google to find out what that system call does to simply reading through your lab’s code to see how it’s constructed.
+
+*** 2. Make it Fail.
+
+- The best way to understand why the bug is occurring is to make it happen again—in order to study the bug you need to be able to recreate it. And in order to be sure it’s fixed, you’ll have to verify that your fix works. In order to do that, you’ll need to have a reproducible test case for your bug.
+- A great analogy here is to turn on the water on a leaky hose—only by doing that are you able to see where the tiny holes might be (and they may be obvious with the water squirting out of them!).
+- You also need to fully understand the sequence of actions that happen up until the bug occurs. It could be specific to a certain type of input, for example, or only a certain branch of an if/else chain.
+
+*** 3. Quit Thinking and Look.
+
+- After you’ve seen it fail, and seen it fail multiple times, you can generally have an idea of at least what function the program may be failing in. Use this to narrow your search window initially.
+- Start instrumenting your code. In other words, add things that print out intermediate values to check assumptions that should be true of variables in your code. For instance, check that that pointer you have really is set to NULL.
+- Guessing initially is fine, but only if you’ve seen the bug before you attempt to fix it. Changing random lines of code won’t get you to a solution very fast, but will result in a lot of frustration (and maybe even more bugs)!
+
+*** 4. Divide and Conquer.
+
+- Just like you’d use binary search on an array to find a number, do this on your code to find the offending line! Figure out whether you’re upstream of downstream of your bug: if your values look fine where you’ve instrumented, you’re upstream of the bug (it’s happening later on in the code). If the values look buggy, you’re probably downstream (the bug is above you).
+- Fix the bugs as you find them—often times bugs will hide under one another. Fix the obvious ones as you see them on your way to the root cause.
+
+*** 5. Change One Thing at a Time.
+
+- Use the scientific method here! Make sure that you only have one variable you’re changing at each step—otherwise, you won’t necessarily know what change was the one that fixed the bug (or whether or not your one addition/modification introduces more).
+- What was the last thing that changed before it worked? If something was fine at an earlier version, chances are whatever you changed in the interim is what’s buggy.
+
+*** 6. Keep an Audit Trail.
+
+Keep track of what you’ve tried! This will prevent you from trying the same thing again, as well as give you an idea of the range of things you’ve tried changing.
+
+*** 7. Check the Plug.
+
+Make sure you’re assumptions are right! Things like “is my Makefile correct?” or “am I initializing everything?” are good things to make sure of before blindly assuming they’re right.
+
+*** 8. Get a Fresh View.
+
+- Getting a different angle on the bug will often times result in a fix: different people think differently, and they may have a different perspective on your issue.
+- Also, articulating your problem to someone often causes you to think about everything that’s going on in your control flow. You might even realize what is wrong as you are trying to describe it to someone! (This happens a lot during office hours and lab sections!)
+- When talking to someone, though, make sure you’re sticking to the facts: report what is happening, but not what you think might be wrong (unless we’re asking you what you think’s going on).
+
+*** 9. If you didn’t fix it, it ain’t fixed.
+
+When you’ve got something you think works, test it! If you have a reproducible test case (you should if you’ve been following along), test it again. And test the other cases too, just to be sure that your fix of the bug didn’t break the rest of the program.
+
+** debug 常用操作
+
+可以使用 __LINE__ macro 来实现打印当前行, 然后根据 [[https://zhuanlan.zhihu.com/p/1905773368868865384][南京大学蒋炎岩: 副教授实名举报计算机专业学生编程水平不如小学生]] 里面的 super 小学生提供的办法 ( 汗颜, ece大二下了, 对 preprocess 和 gcc 的熟悉程度确实还不如小学生 ), 我们可以形成如下的调试办法:
+
+#+begin_src cpp
+// debug log
+#ifdef DEBUG_ON
+#define LOG(...) std::cout << "Line [" << __LINE__ << "]: " << __VA_ARGS__ << std::endl
+#else
+#define LOG(...) do {} while (0)
+#endif
+#+end_src
+
+然后我们只需要在编译的时候加入一个 flag -DDEBUG_ON:
+
+#+begin_src bash
+gcc -DDEBUG_ON xxxx.c -o xxxx
+#+end_src
+
+gcc 里面的 -D 表示 define, 当然还有些在 gcc 里面 #include 文件的办法, 这里暂时就不写了, 下面展现一下如何使用 makefile 来加入和不加入 DEBUG_ON 这个 flag
+
+#+begin_src makefile
+CXXFLAGS = -Wall -Werror -pedantic -g -c -O0
+
+# some contents
+
+# Degbug option
+.PHONY: debug
+debug: CXXFLAGS += -DDEBUG_ON
+debug: all
+#+end_src
+
+然后你可以 make -j 表示不加入 DEBUG_ON 这个标签, 所有的 LOG() 就会被替换为 do {} while(0), 非常的安全, 啥都没有, 如果你是 make debug -j, 那么就会在 CXXFLAGS 里面加入 -DDEBUG_ON 标签, 这样就会 define 了 DEBUG_ON, 然后 LOG() 就会被替换为打印消息, 非常 nice
+
+再次声明, ECE大二的本科生对 preprocess 和 gcc 的熟悉程度不如小学生确实是很可耻的
+
 
 * Useful Tools
 
@@ -1567,6 +1824,130 @@ Classes that declare custom destructors, copy/move constructors or copy/move ass
 make -j 可以开多进程编译, 会快非常多
 不要手动 rm -rf, 使用 make clean 指令, 同时善用 Makefile 去简化一下 shell 指令
 
+下面将从一个个例子入手, 讲解 makefile 的基本使用办法
+
+这里是 cs225 课程推荐的 [[https://makefiletutorial.com/][makefile tutorial]], 我觉得写的非常好, 值得仔细研读, 我写的东西很多是对这个 makefile 教程的复述, 还有在做 cs225 lab 里面碰到的 makefile
+
+*** make tutorial
+
+*** lab_intro makefile
+#+begin_src makefile
+EXENAME = lab_intro
+OBJS = main.o PNG.o HSLAPixel.o lodepng.o lab_intro.o
+
+CXX = g++
+CXXFLAGS = -std=c++1y -c -g -O0 -Wall -Wextra -pedantic
+LD = g++
+LDFLAGS = -std=c++1y -lpthread -lm
+
+all : $(EXENAME)
+
+$(EXENAME) : $(OBJS)
+	$(LD) $(OBJS) $(LDFLAGS) -o $(EXENAME)
+
+main.o : main.cpp lab_intro.h cs225/PNG.h cs225/HSLAPixel.h
+	$(CXX) $(CXXFLAGS) main.cpp
+
+lab_intro.o : lab_intro.cpp lab_intro.h
+	$(CXX) $(CXXFLAGS) lab_intro.cpp
+
+PNG.o : cs225/PNG.cpp cs225/PNG.h cs225/HSLAPixel.h cs225/lodepng/lodepng.h
+	$(CXX) $(CXXFLAGS) cs225/PNG.cpp
+
+HSLAPixel.o : cs225/HSLAPixel.cpp cs225/HSLAPixel.h
+	$(CXX) $(CXXFLAGS) cs225/HSLAPixel.cpp
+
+lodepng.o : cs225/lodepng/lodepng.cpp cs225/lodepng/lodepng.h
+	$(CXX) $(CXXFLAGS) cs225/lodepng/lodepng.cpp
+
+
+test: basic.o PNG.o HSLAPixel.o lodepng.o lab_intro.o
+	$(LD) basic.o PNG.o HSLAPixel.o lodepng.o lab_intro.o $(LDFLAGS) -o test
+
+basic.o : tests/basic.cpp tests/catch.hpp
+	$(CXX) $(CXXFLAGS) tests/basic.cpp
+
+
+clean :
+	-rm -f *.o $(EXENAME) test out-*
+#+end_src
+
+非常好理解, 一个非常简单清晰的 makefile 结构, 注意不要把 tab 改成四个空格, tab 的 ascii 是 0x09, 空格的 ascii 是 0x20, 只不过一般的 tab 在 editor 里面被显示为四个空格 ( 当然也有 vim 这种显示为 8 个空格的 ), 要是不确定用的 tab 还是 4 x space, 你可以 :%!xxd 看一下, 然后再 :%!xxd -r 回来或者直接 normal mode 下 u 撤销, 你会看到 09 这样的, 这个就是 tab
+
+*** lab_debug makefile
+#+begin_src makefile
+EXENAME = sketchify
+
+MAIN_FILE = main.cpp
+
+# Flags:
+CXXFLAGS = -std=c++1y -c -g -O0 -Wall -Wextra -pedantic -ffloat-store
+LDFLAGS = -std=c++1y -lpthread -lm
+CXX = g++
+LD = g++
+
+# Discover files in dir...
+CPP_FILES += $(wildcard *.cpp)
+CPP_FILES += $(wildcard cs225/*.cpp)
+CPP_FILES += $(wildcard cs225/lodepng/*.cpp)
+
+OBJ_FILES += $(CPP_FILES:.cpp=.o)
+
+
+# Discover files for testing...
+TEST_CPP += $(filter-out $(MAIN_FILE),$(CPP_FILES))
+TEST_CPP += $(wildcard tests/*.cpp)
+
+TEST_OBJ = $(TEST_CPP:.cpp=.o)
+
+
+# Rules
+all: $(EXENAME)
+
+$(EXENAME): $(OBJ_FILES)
+	$(LD) $(OBJ_FILES) $(LDFLAGS) -o $(EXENAME)
+
+test: $(TEST_OBJ)
+	$(LD) $(TEST_OBJ) $(LDFLAGS) -o test
+
+%.o: %.cpp %.h
+	$(CXX) $(CXXFLAGS) $< -o $@
+
+clean :
+	-rm -f *.o $(EXENAME) test tests/*.o cs225/*.o cs225/lodepng/*.o
+#+end_src
+
++= 是追加赋值操作符, 意思是在变量原有的值后面添加新的内容
+#+begin_src makefile
+# 初始时CPP_FILES是空的
+CPP_FILES += $(wildcard *.cpp)          # 添加当前目录的.cpp文件
+CPP_FILES += $(wildcard cs225/*.cpp)    # 再添加cs225目录的.cpp文件
+CPP_FILES += $(wildcard cs225/lodepng/*.cpp) # 再添加lodepng目录的文件
+#+end_src
+
+其中 wildcard 是 n. [计]通配符 的意思, 在Makefile里是一个内置函数, 用于文件通配符匹配来返回所有匹配的文件名列表
+
+#+begin_src makefile
+$(CPP_FILES:.cpp=.o)
+#+end_src
+
+这里面的 : 是Makefile的变量替换引用语法, 意思是把CPP_FILES变量中所有以.cpp结尾的部分替换成.o, 比如 main.cpp -> main.o
+
+#+begin_src makefile
+TEST_CPP += $(filter-out $(MAIN_FILE),$(CPP_FILES))
+#+end_src
+
+filter out 函数是过滤掉的意思, 这个命令的意思是从 CPP_FILES 中排除 $(MAIN_FILE) 保留其他所有文件加入 TEST_CPP 里面
+
+#+begin_src makefile
+%.o: %.cpp %.h
+	$(CXX) $(CXXFLAGS) $< -o $@
+#+end_src
+
+这里的 % 是Makefile的模式规则, %是通配符, 匹配任意字符串, 这个规则描述的是如何从一个 .cpp 文件和一个 .h 文件生成对应的 .o 文件
+$<: 代表第一个依赖文件 ( 在这里是.cpp文件 )
+$@: 代表目标文件 ( 在这里是.o文件 )
+注意, 这里的 -o 仅仅表示 编译/链接/编译加链接 生成的文件名叫什么, 没有规定一定是要生成 executable image, 而这里的 CXXFLAGS 里面有 -c, 也就是 compile only, 所以肯定不会生成 executable image 的
 
 ** git
 1. git branch

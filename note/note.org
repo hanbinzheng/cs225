@@ -286,7 +286,7 @@ STM32H723内存映射:
    因为我用的也不多, 我只在处理 DMA 无法 access DTCM 的时候手动放置 buffer 的时候用了一次, 所以这里多放了几个例子, 虽然我不觉得这些例子会用到, 但是别人用到的时候要看得懂
 
    基本语法
-   ,#+begin_src c
+   #+begin_src c
     // 单个属性
     type name __attribute__((attribute_name));
 
@@ -1804,6 +1804,1409 @@ debug: all
 然后你可以 make -j 表示不加入 DEBUG_ON 这个标签, 所有的 LOG() 就会被替换为 do {} while(0), 非常的安全, 啥都没有, 如果你是 make debug -j, 那么就会在 CXXFLAGS 里面加入 -DDEBUG_ON 标签, 这样就会 define 了 DEBUG_ON, 然后 LOG() 就会被替换为打印消息, 非常 nice
 
 再次声明, ECE大二的本科生对 preprocess 和 gcc 的熟悉程度不如小学生确实是很可耻的
+
+
+* quiz 1
+
+quiz 1 是 38/40, 记录一下怎么 gg 的, 主要原因是 cpp 的语法不熟悉还有手瓢:
+** 1. delete 的语法相关
+delete 在删除一般的 object 的时候是不需要 delete [] object; 的, 但是在删除数组的时候需要 delete [] array; 因为 new[] 会在头部存数组的长度, 比如说
+#+begin_src cpp
+int *_array = new ClassName[10];
+#+end_src
+
+实际上 new 和 delete 的行为非常好玩, 还有他们底层调用的是 malloc 和 free, 我们先讲一下 malloc 的性质
+
+malloc 不在乎类型, malloc(size_) 只会在内存里面给你 size_ 个 byte 的地址, 返回的类型是一个 void * 指针, 然后我们需要自己去进行类型转换
+
+假设 malloc(size_) 返回的 void * 给了 ptr 这个变量, 然后在 ((char *)ptr - 8) 到 ((char *)ptr - 1) 这 8 个 byte 里面会储存 size_ + 8 这个值 ( 硬编码了向前 8 byte ), 这样 free(ptr) 的时候他就可以先进行 (char *) ptr - 8, 然后读取 (char *) ptr - 8 到 (char *) ptr - 1 这快区域里面的 size_ + 8 值, 知道要 free 多少内存区域, 然后从 (char *) ptr - 8 这个地址开始 free
+
+其中 (char *)ptr - 8 到 (char *)ptr - 1这8 byte 叫做 chunk size, 是专门用于记录这次 malloc 的 meta data 的
+
+值得注意的是在 (char *)ptr - 8 到 (char *)ptr - 1 这 8 byte 里面还储存了 (char *)ptr - 8 往前的内存地址是不是 in use ( PREV_INUSE )
+
+是这样, 在现代 64 位的计算机里面我们自己分配的小的内存块必须是 16byte 的整数倍 ( 为了内存对齐, 这样的话计算起来会快很多 ), 所以我们 malloc(size_) 的时候理论上最小只需要占用 size_ + 8 个 byte, 但是为了满足内存对齐, 我们会占用 \( 16 \times \lceil \frac{\text{size} + 8}{16} \rceil \) 个 byte, 也就是说在 (char *)ptr - 8 到 (char *) ptr - 1 这 8 byte 里面存的值应该是
+   \( 16 \times \lceil \frac{\text{size} + 8}{16} \rceil \) 而不是 size_t + 8, 多出来的 \( 16 \times \lceil \frac{\text{size} + 8}{16} \rceil - (\text{size} + 8) \) 个 byte 会被填充到 (char *) ptr + size_t 之后
+
+我们实际上还需要记录比 (char *)ptr - 8 更低的地址是不是空闲, 理论上还需要更多的 byte, 但是我们发现, 因为这个内存对齐的原因, 所以 size_t 一定是 16 的倍数, 所以从 (char *)ptr - 8 到 (char *) ptr - 1 这 8 byte 里面最低的三位一定是0, 所以我们可以用这三位来记录比 (char *)ptr - 8 更低的地址的状态, 在我的 ubuntu24.04 上面, 我们使用的是最低的那一位记录 previous 是否 in use (PREV_INUSE), 如果最低位是0, 代表并不是 in use, 如果是 1, 代表 in use
+
+然后再说 new 和 delete
+
+如果是 new 一个 int/float/double 这样的基本类型, 或者是 new 一个 int[size]/float[size]/double[size] 这样基本类型的数组的话, 他的行为基本是跟 malloc 一致的 ( 实际上 new 函数就是在调用底层的 malloc ), 理论上我们 free 就行了, 理是这个理, 但是实际上会出问题, 我们等一下看
+
+如果是 new 一个 class 的 instance 的话, new 函数的做法实际上是:
+1. 先调用 malloc, ClassType *ptr = malloc(sizeof(ClassType));
+2. 在 ptr 指向的地址上调用 ClassType 的 constructor
+3. 返回 ptr
+
+我们可以看出, 这个东西只是多了一个调用构造函数, 和 malloc 并没有实质的区别, delete 实际上就是 调用 destructor 然后最后 free
+
+注意, 这里 free 之前需要调用 destructor 的原因是该 object 可能有一些指针或者数组作为成员, 我们需要释放这些资源, 直接 free 这片内存会导致 memory leakage
+
+但是在 new ClassName[size] 的时候就出问题了, 因为根据上面的解释, 我们并不知道有几个 object, 换句话说 delete 不知道要调用几次 destructor 释放资源之后才能用 free, 所以我们有多了一个 cookie, 就是说 new ClassName 实际上做的是:
+1. ClassType *ptr = malloc(sizeof(ClassType) * size + 8) + 8;
+2. for i in range(0, size), 对 (ptr + i) 进行调用 constructor
+3. 返回 ptr然后
+
+我们注意到, 这里多 malloc 了 8 byte ( 叫做 cookie ), 这 8 byte 里面存储了 size 这个值, 这样我们 delete 的时候就可以根据 cookie 里面存的值来调用 destructor, 这个操作要求的语法是 delete []
+
+好了, 我们来 gdb 一下, 我们检查如下的 verify.cpp 文件
+#+begin_src cpp
+#include <iostream>
+#include <cstdlib>
+
+class Widget {
+public:
+    int data;
+    Widget() { data = 0x11111111; }
+    ~Widget() { std::cout << "Destructor of Widget called" << std::endl; }
+};
+
+class Trivial {
+public:
+    int data;
+    Trivial() { data = 0x22222222; }
+    // 注意：这里没有析构函数
+};
+
+int main() {
+    // 1. 验证 malloc
+    void* m = std::malloc(40); // 申请 40 字节
+
+    // 2. 验证 new 单个对象
+    Widget* p_single = new Widget();
+
+    // 3. 验证 new[] 数组 (带析构函数)
+    Widget* p_array = new Widget[10];
+
+    // 4. 验证 new[] 数组 (标准类型/无析构函数)
+    int* p_int = new int[10];
+    Trivial* p_trivial = new Trivial[10];
+
+    // 作为断点
+    std::cout << "Address m:       " << m << std::endl;
+    std::cout << "Address p_array: " << p_array << std::endl;
+    std::cout << "Address p_array: " << p_array << std::endl;
+
+    delete[] p_array; // 验证析构调用
+    return 0;
+}
+#+end_src
+
+然后我们编译, 然后 gdb 进去看看;
+
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g verify.cpp -o verify
+(base) zhb:~/Desktop$ gdb ./verify
+GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./verify...
+(gdb) break main
+Breakpoint 1 at 0x121a: file verify.cpp, line 20.
+(gdb) run
+Starting program: /home/zhb/Desktop/verify
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) y
+Debuginfod has been enabled.
+To make this setting permanent, add 'set debuginfod enabled on' to .gdbinit.
+Downloading separate debug info for system-supplied DSO at 0x7ffff7fc3000
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, main () at verify.cpp:20
+20	    void* m = std::malloc(40); // 申请 40 字节
+(gdb) n
+23	    Widget* p_single = new Widget();
+(gdb) print m
+$1 = (void *) 0x55555556b2b0
+(gdb) x/8bx (char *)m - 8
+0x55555556b2a8:	0x31	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+(gdb) n
+26	    Widget* p_array = new Widget[10];
+(gdb) n
+29	    int* p_int = new int[10];
+(gdb) n
+30	    Trivial* p_trivial = new Trivial[10];
+(gdb) n
+33	    std::cout << "Address m:       " << m << std::endl;
+(gdb) print p_array
+$2 = (Widget *) 0x55555556b308
+(gdb) x/16bx (char *)p_array - 16
+0x55555556b2f8:	0x41	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+0x55555556b300:	0x0a	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+(gdb) print p_single
+$3 = (Widget *) 0x55555556b2e0
+(gdb) x/16bx (char *)p_single - 16
+0x55555556b2d0:	0x00	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+0x55555556b2d8:	0x21	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+(gdb) print p_int
+$4 = (int *) 0x55555556b340
+(gdb) x/16bx (char *)p_int - 16
+0x55555556b330:	0x00	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+0x55555556b338:	0x31	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+(gdb) print p_trivial
+$5 = (Trivial *) 0x55555556b370
+(gdb) x/16bx (char *)p_trivial - 16
+0x55555556b360:	0x00	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+0x55555556b368:	0x31	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+(gdb) n
+Address m:       0x55555556b2b0
+34	    std::cout << "Address p_single:" << p_single << std::endl;
+(gdb) n
+Address p_single:0x55555556b2e0
+35	    std::cout << "Address p_array: " << p_array << std::endl;
+(gdb) n
+Address p_array: 0x55555556b308
+36	    std::cout << "Address p_int:   " << p_int << std::endl;
+(gdb) n
+Address p_int:   0x55555556b340
+38	    delete[] p_array; // 验证析构调用
+(gdb) n
+Destructor of Widget called
+Destructor of Widget called
+Destructor of Widget called
+Destructor of Widget called
+Destructor of Widget called
+Destructor of Widget called
+Destructor of Widget called
+Destructor of Widget called
+Destructor of Widget called
+Destructor of Widget called
+39	    return 0;
+(gdb) q
+A debugging session is active.
+
+	Inferior 1 [process 67767] will be killed.
+
+Quit anyway? (y or n) y
+(base) zhb:~/Desktop$
+#+end_src
+
+完美验证, 之所以都是 0x21 和 0x31 是因为内存对齐, 那个 1 是作为状态位检查更低地址的内存是不是 in use
+
+我们看见了 new 一个 object 在内存布局上实际上跟 malloc 并没有什么实际区别 ( 都是 8 byte 的 chunk size ), 但是 new 一个 ClassName 的数组的时候, 我们可以看见两个数字, 一个就是 array 的 object, 也就是对 p_array 里面输出的 0x0a, 然后也可以观察到, int array, single object, 还有没有 destructor 的 object array 都是没有 cookie 的, 这个也符合之前的分析
+
+但是是不是 int array 就可以用 delete 而不是 delete [] 呢? 并不是这样, 即使按照分析是这样, 下面给出一个例子
+
+#+begin_src cpp
+int main() {
+	int *arr = new int[3];
+        delete arr;
+	return 0;
+
+}
+#+end_src
+
+从内存布局的理论上来说, 用 delete 或者 free 才是对的, 但是可以试一下
+#+begin_src cpp
+#include<cstdlib>
+
+int main() {
+	int *arr = new int[3];
+        delete arr;
+	return 0;
+
+}
+#+end_src
+
+运行, 发现内存泄漏, 说明有点问题
+
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ test.cpp -g
+(base) zhb:~/Desktop$ valgrind --leak-check=full ./a.out
+==68169== Memcheck, a memory error detector
+==68169== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==68169== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==68169== Command: ./a.out
+==68169==
+==68169== Mismatched free() / delete / delete []
+==68169==    at 0x484988F: free (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==68169==    by 0x10918E: main (test.cpp:5)
+==68169==  Address 0x4e2d080 is 0 bytes inside a block of size 12 alloc'd
+==68169==    at 0x48485C3: operator new[](unsigned long) (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==68169==    by 0x10917E: main (test.cpp:4)
+==68169==
+==68169==
+==68169== HEAP SUMMARY:
+==68169==     in use at exit: 0 bytes in 0 blocks
+==68169==   total heap usage: 2 allocs, 2 frees, 73,740 bytes allocated
+==68169==
+==68169== All heap blocks were freed -- no leaks are possible
+==68169==
+==68169== For lists of detected and suppressed errors, rerun with: -s
+==68169== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)
+(base) zhb:~/Desktop$
+#+end_src
+
+再用 delete 而不是 delete[] 试一下
+#+begin_src
+(base) zhb:~/Desktop$ g++ test.cpp -g
+(base) zhb:~/Desktop$ valgrind --leak-check=full ./a.out
+==68262== Memcheck, a memory error detector
+==68262== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==68262== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==68262== Command: ./a.out
+==68262==
+==68262== Mismatched new/delete size value: 4
+==68262==    at 0x484A5B9: operator delete(void*, unsigned long) (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==68262==    by 0x109198: main (test.cpp:5)
+==68262==  Address 0x4e2d080 is 0 bytes inside a block of size 12 alloc'd
+==68262==    at 0x48485C3: operator new[](unsigned long) (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==68262==    by 0x10917E: main (test.cpp:4)
+==68262==
+==68262== Mismatched free() / delete / delete []
+==68262==    at 0x484A61D: operator delete(void*, unsigned long) (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==68262==    by 0x109198: main (test.cpp:5)
+==68262==  Address 0x4e2d080 is 0 bytes inside a block of size 12 alloc'd
+==68262==    at 0x48485C3: operator new[](unsigned long) (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==68262==    by 0x10917E: main (test.cpp:4)
+==68262==
+==68262==
+==68262== HEAP SUMMARY:
+==68262==     in use at exit: 0 bytes in 0 blocks
+==68262==   total heap usage: 2 allocs, 2 frees, 73,740 bytes allocated
+==68262==
+==68262== All heap blocks were freed -- no leaks are possible
+==68262==
+==68262== For lists of detected and suppressed errors, rerun with: -s
+==68262== ERROR SUMMARY: 2 errors from 2 contexts (suppressed: 0 from 0)
+(base) zhb:~/Desktop$
+#+end_src
+
+看, 还是有问题, 这个跟现代 cpp 标准要求一定是 delete[] 有关, 这个是个 UB, 发生了什么我也不知道, 暂时也没有兴趣研究了, 就这样吧
+
+好了, 无论怎么说, 现在应该已经掌握了什么时候用 delete 什么时候用 delete [] 了 🤪
+
+** 2. 关于 cpp 函数传参的默认值
+cpp 里面, 在 .h 文件里声明的时候要给默认参数赋值, 在 .cpp 文件里不需要且不能对对应的参数给默认值, cpp 语法里面默认值只能给一次 ( 给了两次会报错 ), 而且为了其他用这个函数的文件也能知道这个函数的某一个参数有默认值, 必须写在 .h 文件里, 这个在之前的某次实验里面提到过了
+
+** 3. 小糖人错误:
+1. memory leakage 写成了 memry leakage
+2. 写两个 for 循环嵌套, 判断条件里第一个 x <= c1 写对了, 第二个 y <= c2 的小于等于写成了数学的小于等于, 没招了
+
+
+* lecture 07
+
+这里我们讲一下 inheritance, polymorphism, virtual function, pure virtual function, abstract class 之类相关的东西
+
+顺便一提, zjui 的课水的不能再水了, 不知道他在上什么东西, 首先一下子就从 lecture 04 跳到了 lecture 07, 其次一节课只是非常简单的讲解了一下 inheritance 相关的东西, 没有上手 coding, 没有调试, 就对着 ppt 干讲, 不像 uiuc 的教授, 好歹会放个 gdb 调试结果或者代码运行结果, 真的无语了, 我觉得编程课你总得写点代码然后当场调试吧, 而且讲课讲的超级超级无敌浅
+
+好了, 下面开始讲 inheritance 吧, inheritance 的意思就是 derive one class from another class, 主要内容分为 data 的继承还有 member function 的继承
+
+** 1. inheritance: 继承 data
+inheritance 分成 data 的继承, 还有 member function 的继承, 我们先讲比较简单的数据的继承, 当我们从 father class 继承的时候, 我们做的实际上是直接先把 father class 的 data 全都拿过来, 然后再在 father class 的 data 的后面分配 child class 的 data, 具体例子如下:
+
+#+begin_src cpp
+#include <iostream>
+
+class Base {
+      public:
+        Base(int base_val) : base_val_(base_val) {}
+        int base_val_;
+};
+
+class Derived : public Base {
+      public:
+        Derived(int base_val, int der_val)
+            : Base(base_val), der_val_(der_val) {}
+        int der_val_;
+};
+
+int main() {
+        Base base = Base(1);
+        Derived der = Derived(1, 2);
+	std::cout << base.base_val_ << std::endl;
+        return 0;
+}
+#+end_src
+
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g test.cpp -o test
+(base) zhb:~/Desktop$ gdb ./test
+GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./test...
+(gdb) break main
+Breakpoint 1 at 0x1195: file test.cpp, line 16.
+(gdb) run
+Starting program: /home/zhb/Desktop/test
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) y
+Debuginfod has been enabled.
+To make this setting permanent, add 'set debuginfod enabled on' to .gdbinit.
+Downloading separate debug info for system-supplied DSO at 0x7ffff7fc3000
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, main () at test.cpp:16
+16	int main() {
+(gdb) n
+17	        Base base = Base(1);
+(gdb) n
+18	        Derived der = Derived(1, 2);
+(gdb) n
+19		std::cout << base.base_val_ << std::endl;
+(gdb) print &base
+$1 = (Base *) 0x7fffffffdeec
+(gdb) print sizeof(Base)
+$2 = 4
+(gdb) print &der
+$3 = (Derived *) 0x7fffffffdef0
+(gdb) print sizeof(Derived)
+$4 = 8
+(gdb) x/4bx (char *) (&base)
+0x7fffffffdeec:	0x01	0x00	0x00	0x00
+(gdb) x/8bx (char *) (&der)
+0x7fffffffdef0:	0x01	0x00	0x00	0x00	0x02	0x00	0x00	0x00
+(gdb) q
+A debugging session is active.
+
+	Inferior 1 [process 73197] will be killed.
+
+Quit anyway? (y or n) y
+#+end_src
+
+看这里, Base class 的大小就是 int, 即 4 byte, Derived class 的大小就是两个 int, 即 8 byte
+
+然后你看这里, base 的地址是 0x7fffffffdeec, 然后往后的 4 byte 是 0x01	0x00	0x00	0x00, 也就是我们给的值 1
+然后 der 的地址是 0x7fffffffdef0, 刚好是 0x7fffffffdeec 往后 4 byte, 然后他的大小是 8 byte
+0x7fffffffdeec:	0x01	0x00	0x00	0x00	0x02	0x00	0x00	0x00
+可见在内存里面是先放了 1 (Base class 的 data), 然后再放了 2 (Derived class 的 data)
+
+然后我们可以看见, 这里是在初始成员列表里面调用了 base class 的 constructor, 还有 initialization list, 这个跟我们之前的理解是一致的:
+1. 分配内存
+2. 执行 constructor initializer list 的相关内容 ( 只能在 initializer list 的地方干预, 否则就是执行每一个东西的默认的初始化 )
+3. 执行构造函数体 {}
+这里先分配内存, 然后执行 initialization list 里面的内容, 因为 base class 的 data 在最前面, 所以我们需要先调用 base class 的 constructor, 然后再是本 class 的 member 的 initialization list
+
+然后注意到, 继承的语法是这样的:
+#+begin_src cpp
+class Derived : public Base {
+                /* balabalabala */
+}
+#+end_src
+这里有一个 public, 我们先回顾一下 cpp 里面的 public, private, protected 分别是什么意思, 如果写:
+#+begin_src cpp
+class ClassType {
+        public:
+                /* some code */
+        private:
+                /* some code */
+        protected:
+                /* some code */
+};
+#+end_src
+首先, public, private, protected 这些东西在内存上是没有区别的, 他只是在给编译器一个指令, 在编译的时候检查访问权限, 其中:
+public: 所有东西都能访问, 包括但不限于本 class 内部的 member function, 本 class 外部的 function 或者任何操作, 还有继承本 class 的 child class 可以访问
+private: 除了本 class 内部的 member function, 其他任何东西都不能访问
+protected: 只有本 class 内部的 member function 还有本 class 的 child class 可以访问
+
+上面是针对一个 class 的内部区域的标记, 同时, 我们继承一个 class 的时候可以选择 public 继承, private 继承, 还有 protected 继承, 无论怎么继承, child class 都会继承 father class 的所有 data ( 包括 public 的部分, private 的部分, protected 的部分 ), 只不过对应类型会有所变化
+#+begin_src cpp
+class ClassType {
+        public:
+                uint32_t pub_member_;
+        private:
+                uint32_t pri_member_;
+        protected:
+                uint32_t pro_member_;
+};
+
+class Derived1 : public ClassType {
+                /* some code */
+};
+
+class Derived2: protected ClassType {
+                /* some code */
+};
+
+class Derived3 private ClassType {
+        /* some code */
+};
+#+end_src
+不论 Derived1, Derived2, Derived3, 都会继承 ClassType 的所有数据成员 ( 在这里, 即 pub_member_, pri_member_, pro_member_ ), 只不过随着你继承方式的不同, child class 对 father class 对 data 在编译的时候可见于不可见不同, 但是这不意味着内存里面没有 father class 的数据成员, 具体总结如下:
+
+|--------------------------+------------------------------------+----------------------------------+---------------------------|
+| father class 的 data     | public 的 pub_member_              | protected 的 pro_member_         | private 的 pri_member_    |
+|--------------------------+------------------------------------+----------------------------------+---------------------------|
+| public 继承的 Derived1    | 可见, 仍为 Derived1 的 punlic       | 可见, 仍为 Derived1 的 protected  | 不可见不可访问, 但是内存仍存在 |
+|--------------------------+------------------------------------+----------------------------------+---------------------------|
+| protected 继承的 Derived2 | 可见, 但是变成 Derived2 的 protected | 可见, 还是 Derived2 的 protected  | 不可见不可访问, 但是内存仍存在 |
+|--------------------------+------------------------------------+----------------------------------+---------------------------|
+| provate 继承的 Derived3   | 可见, 但是变成 Derived3 的 private   | 可见, 但是变成 Derived3 的 private | 不可见不可访问, 但是内存存在  |
+|--------------------------+------------------------------------+----------------------------------+---------------------------|
+
+物理现实是 child class 容纳了 father class 的所有 data member, 但是语法上你如果通过 child class 去访问 father class 的 private member, 编译器会报错, 这个只是因为编译器在检查, 不代表内存里面没有这个东西
+
+我们下面写个小 demo 来演示一下我们上面介绍的继承成员的规则:
+
+#+begin_src cpp demo.cpp
+#include <iostream>
+
+class Base {
+private:
+    int private_val = 0xA1A1A1A1; // 私有，子类不可见
+protected:
+    int protected_val = 0xB2B2B2B2;
+public:
+    int public_val = 0xC3C3C3C3;
+};
+
+class Derived1 : public Base {
+public:
+    int child_val = 0xD4D4D4D4;
+};
+
+class Derived2 : public Base {
+public:
+    int child_val = 0xE5E5E5E5;
+};
+
+class Derived3 : public Base {
+public:
+    int child_val = 0xF6F6F6F6;
+};
+
+int main() {
+    Derived1 der1;
+    Derived2 der2;
+    Derived3 der3;
+    Base base;
+    return 0;
+}
+#+end_src
+
+编译, 然后 gdb 进去看一下:
+
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g demo.cpp -o demo
+(base) zhb:~/Desktop$ gdb ./demo
+GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./demo...
+(gdb) break main
+Breakpoint 1 at 0x1155: file demo.cpp, line 27.
+(gdb) run
+Starting program: /home/zhb/Desktop/demo
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) y
+Debuginfod has been enabled.
+To make this setting permanent, add 'set debuginfod enabled on' to .gdbinit.
+Downloading separate debug info for system-supplied DSO at 0x7ffff7fc3000
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, main () at demo.cpp:27
+27	int main() {
+(gdb) n
+28	    Derived1 der1;
+(gdb) n
+29	    Derived2 der2;
+(gdb) n
+30	    Derived3 der3;
+(gdb) n
+31	    Base base;
+(gdb) n
+32	    return 0;
+(gdb) print sizeof(Derived1)
+$1 = 16
+(gdb) print sizeof(Base)
+$2 = 12
+(gdb) x/16xb (char *)(&der1)
+0x7fffffffdec0:	0xa1	0xa1	0xa1	0xa1	0xb2	0xb2	0xb2	0xb2
+0x7fffffffdec8:	0xc3	0xc3	0xc3	0xc3	0xd4	0xd4	0xd4	0xd4
+(gdb) x/16xb (char *)(&der2)
+0x7fffffffded0:	0xa1	0xa1	0xa1	0xa1	0xb2	0xb2	0xb2	0xb2
+0x7fffffffded8:	0xc3	0xc3	0xc3	0xc3	0xe5	0xe5	0xe5	0xe5
+(gdb) x/16xb (char *)(&der3)
+0x7fffffffdee0:	0xa1	0xa1	0xa1	0xa1	0xb2	0xb2	0xb2	0xb2
+0x7fffffffdee8:	0xc3	0xc3	0xc3	0xc3	0xf6	0xf6	0xf6	0xf6
+(gdb) x/12xb (char *)(&base)
+0x7fffffffdeb4:	0xa1	0xa1	0xa1	0xa1	0xb2	0xb2	0xb2	0xb2
+0x7fffffffdebc:	0xc3	0xc3	0xc3	0xc3
+(gdb) q
+A debugging session is active.
+
+	Inferior 1 [process 73890] will be killed.
+
+Quit anyway? (y or n) y
+#+end_src
+
+你看, 正如我们所介绍的, child class 是会继承 parent class 的所有 member 的, 只是编译的时候 parent class 的 public, protected, private 区域和 child class 的 public, protected, private 继承方式决定了编译的时候检查访问权限的不同, 但是没有访问权限不代表这个东西不存在, 编译错误只是代表编译器根据语法不同意你访问
+
+** 2. inheritance: 继承 member function
+*** (1) this 指针和 cpp 里的 member function
+
+要搞清楚 cpp 里面的 member function 是怎么回事, 我们就必须搞清楚 cpp 里面的函数是怎么调用的
+
+#+begin_src cpp
+class ClassType {
+        public:
+                uint32_t member_;
+                uint64_t get_member(void);
+        private:
+                uint64_t private_member_;
+}
+#+end_src
+
+对于上述 class 的 object, 我们如果打印出他的 size 的话, 我们会发现只有 4 + 8 = 12 byte, 也就是说, object 在内存上实际上只保留了数据而没有保留 member function, member function 是作为一般函数被放在 .text 段而不是跟 object 一样被放在 heap 或者 stack 上面, obj.get_member() 这个函数实际上被编译成了类似 uint64_t get_member(ClassType *obj) 这样的形式, 换句话说, 所有的 member function 在编译的时候都会多一个类型为本class的指针作为参数, 然后当我们 obj.member_func() 的时候, 编译器实际上隐式的把我们的 obj 的地址传入了 .text 段段函数里作为第一个参数, 这个效果相当于 c 语言里的
+
+#+begin_src c
+struct ClassType {
+        uint32_t member_;
+        uint64_t private_member_; // 这里访问权限没有办法
+};
+
+uint64_t get_member(struct ClassType *obj) {
+        return obj->private_member_;
+}
+#+end_src
+
+然后传入的第一个参数就是 this 指针
+
+但是好玩的是, 我们 print sizeof(ClassType) 的时候会发现 this 指针根本就不存在 object 的内存里面, 确实, 这个是运行时存在 register 里面由计算机传递给 member function 的
+
+*** (2) 静态绑定, 同名函数的 hide
+
+比如 parent class 有一个没有标记 virtual 的 func 函数, child class 也命名了一个叫做 func 的同名函数, 编译器在调用函数时只看指针或引用的类型而不看内存里对象的实际类型
+
+#+begin_src cpp hide.cpp
+#include <iostream>
+
+class Base {
+public:
+    void show() { std::cout << "Base::show\n"; }
+};
+
+class Derived : public Base {
+public:
+    // 隐藏了 Base::show
+    void show() { std::cout << "Derived::show\n"; }
+};
+
+int main() {
+    Derived d;
+    Base& b_from_d = d;
+
+    Base b;
+    Derived& d_from_b = b;
+
+    d.show();
+    b_from_d.show();
+    b.show();
+    d_from_b.show();
+}
+#+end_src
+
+这里发现是编译错误:
+#+begin_src
+(base) zhb:~/Desktop$ g++ -g hide.cpp -o hide
+hide.cpp: In function ‘int main()’:
+hide.cpp:19:25: error: invalid initialization of reference of type ‘Derived&’ from expression of type ‘Base’
+   19 |     Derived& d_from_b = b;
+      |                         ^
+(base) zhb:~/Desktop$
+#+end_src
+我们会发现这里编译错误了, 注意只能使用 child class 去 initialize father class, 而不能使用 father class 的 obj 去初始化 child class 的 obj
+
+修正之后:
+#+begin_src cpp
+#include <iostream>
+
+class Base {
+public:
+    void show() { std::cout << "Base::show\n"; }
+};
+
+class Derived : public Base {
+public:
+    // 隐藏了 Base::show
+    void show() { std::cout << "Derived::show\n"; }
+};
+
+int main() {
+    Derived d;
+    Base& b_from_d = d;
+    Derived& d_from_d = d;
+
+    d.show();
+    b_from_d.show();
+    d_from_d.show();
+}
+#+end_src
+
+编译然后运行:
+
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g hide.cpp -o hide
+(base) zhb:~/Desktop$ ./hide
+Derived::show
+Base::show
+Derived::show
+#+end_src
+
+这里 Derived class 的 member function 会把 Base class 的同名 member funcion 隐藏 ( d 调用的是 Derived class 的 member function, 隐藏了 Base class 的同名 member function ), 但是可以看见, 编译器在这里只认调用 member function 的 object 的 type, 什么 type 就调用什么 type 对应的 member function, 比如 b_from_d 即使是用了 d 进行初始化, 还是调用了 Base class 的 member function, 这叫静态绑定 ( Static Binding )函数地址在编译阶段就填好了
+
+这里是有点 tricky 的, 看一下最后补档里面的 comprehensive example, 这里会把什么时候静态绑定, 什么时候走 vtable 讲述的很清楚
+
+
+*** (3) about virtual function
+
+在没有 virtual 的情况下, 函数调用是静态绑定的, 编译器在编译时看到 p->func() 会直接根据 p 的指针类型 ( 比如 Base* )跳转到 Base::func 的地址执行
+
+当你加上 virtual 关键字编译器会做两件事:
+1. 生成虚表 (vtable): 为这个类专门开辟一块内存 ( 在 .rodata 段 ), 里面按顺序存着该类所有虚函数的地址
+2. 注入虚表指针 (vptr): 在对象的内存首部增加一个 8 字节的指针, 指向上述的虚表
+
+此时 p->func() 不再是直接跳转到 func 对应的地址, 而变成了p->vptr -> vtable -> func_address -> 执行, 这个就是动态绑定
+
+注意, 这里是每个 class 都生成自己对应的一个 vtable, 比如说 class Base, 还有 class Derived : public Base, 那么 Base 和 Derived 都有一张自己的 vtable
+
+#+begin_src cpp virtual.cpp
+#include<iostream>
+
+class Base {
+public:
+    int member1_ = 1;
+    int member2_ = 2;
+    virtual void f1() { std::cout << "Base::f1\n"; }
+    virtual void f2() { std::cout << "Base::f2\n"; }
+};
+
+class Derived : public Base {
+public:
+    int der_member1_ = 3;
+    int der_member2_ = 4;
+    void f1() override { std::cout << "Derived::f1\n"; }
+    // 没有重写 f2
+};
+
+int main() {
+        Derived d;
+        Base b;
+        Base &b_from_d = d;
+
+        d.f1();
+        d.f2();
+        b.f1();
+        b.f2();
+        b_from_d.f1();
+        b_from_d.f2();
+
+        return 0;
+}
+#+end_src
+
+然后编译执行:
+
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g virtual.cpp -o virtual
+(base) zhb:~/Desktop$ ./virtual
+Derived::f1
+Base::f2
+Base::f1
+Base::f2
+Derived::f1
+Base::f2
+#+end_src
+
+再深入的 gdb 进去看一下
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g virtual.cpp -o virtual
+(base) zhb:~/Desktop$ gdb ./virtual
+GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./virtual...
+(gdb) break main
+Breakpoint 1 at 0x1175: file virtual.cpp, line 19.
+(gdb) run
+Starting program: /home/zhb/Desktop/virtual
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) y
+Debuginfod has been enabled.
+To make this setting permanent, add 'set debuginfod enabled on' to .gdbinit.
+Downloading separate debug info for system-supplied DSO at 0x7ffff7fc3000
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, main () at virtual.cpp:19
+19	int main() {
+(gdb) n
+20	        Derived d;
+(gdb) n
+21	        Base b;
+(gdb) n
+22	        Base &b_from_d = d;
+(gdb) n
+24	        d.f1();
+(gdb) n
+Derived::f1
+25	        d.f2();
+(gdb) n
+Base::f2
+26	        b.f1();
+(gdb) n
+Base::f1
+27	        b.f2();
+(gdb) n
+Base::f2
+28	        b_from_d.f1();
+(gdb) n
+Derived::f1
+29	        b_from_d.f2();
+(gdb) n
+Base::f2
+31	        return 0;
+(gdb) print sizeof(Base)
+$1 = 16
+(gdb) print sizeof(Derived)
+$2 = 24
+(gdb) x/16bx (char *)(&b)
+0x7fffffffded0:	0x78	0x7d	0x55	0x55	0x55	0x55	0x00	0x00
+0x7fffffffded8:	0x01	0x00	0x00	0x00	0x02	0x00	0x00	0x00
+(gdb) x/24bx (char *)(&d)
+0x7fffffffdee0:	0x58	0x7d	0x55	0x55	0x55	0x55	0x00	0x00
+0x7fffffffdee8:	0x01	0x00	0x00	0x00	0x02	0x00	0x00	0x00
+0x7fffffffdef0:	0x03	0x00	0x00	0x00	0x04	0x00	0x00	0x00
+(gdb) x/16bx (char *)(&b_from_d)
+0x7fffffffdee0:	0x58	0x7d	0x55	0x55	0x55	0x55	0x00	0x00
+0x7fffffffdee8:	0x01	0x00	0x00	0x00	0x02	0x00	0x00	0x00
+(gdb) x/24bx (char *)(&b_from_d)
+0x7fffffffdee0:	0x58	0x7d	0x55	0x55	0x55	0x55	0x00	0x00
+0x7fffffffdee8:	0x01	0x00	0x00	0x00	0x02	0x00	0x00	0x00
+0x7fffffffdef0:	0x03	0x00	0x00	0x00	0x04	0x00	0x00	0x00
+#+end_src
+
+
+注意到这里我们刻意让 sizeof(Base) 为 16 byte, sizeof(Derived) 为 24 byte, 这样是为了避免自动填充影响教学, cpp 里面对于 class 大小的规则是: 类的大小必须是其 "最宽基本类型成员" 大小的整数倍, 比如这里 Derived 是 24 byte, 其最宽的基本类成员是 vptr, 也就是 8 byte, 24 byte 是 8 byte 的整数倍, 所以不需要填充, 这里 Base 是 16 byte, 最宽的基本类成员也是 vptr, 也不需要填充, 但是如果我们把 Base 给变成 12 byte 的理论大小 ( 比如说只有一个 int 作为 member data ), 那这样的话 sizeof(Base) 的输出还是 16 byte, 这个是因为 12 不是 vptr 8 byte 的整数, 要填充
+
+然后我们看, Base 和 Derived 的前 8 byte 都是 vptr, 指向的是 Base class 的 vtable 和 Derived class 的 vtable, 然后后面储存的是 Base 和 Derived class 里面的数据
+Base object b 的 vptr 是 0x7fffffffded0:	0x78	0x7d	0x55	0x55	0x55	0x55	0x00	0x00, 即 0x0000555555557d78
+Derived object d vptr 是 0x7fffffffdee0:	0x58	0x7d	0x55	0x55	0x55	0x55	0x00	0x00, 即 0x0000555555557d58
+然后
+这两个值指向的是 class Base 和 class Derived 的 vtable, 注意到这是两个 vtable, 然后 vtable 里面存储的是 function pointer, 即 .text 段里面的函数实现, 等下我们可以把 vtable 的东西打印出来看看
+然后 Base object b 后面紧跟着的 member1_ 和 member_2, 即 0x01 和 0x02, 然后 Derived class 后面紧跟着的是 Base class 的两个 member: member1_ = 0x01, member2_ = 0x02, 然后是 Derived class 的 member data: der_member1_ = 0x03, der_member2_ = 0x04, 完美
+
+好, 我们继续下去, 看看这个 vptr 里面到底是啥:
+#+begin_src bash
+(gdb) x/2a 0x555555557d78
+0x555555557d78 <_ZTV4Base+16>:	0x555555555242 <_ZN4Base2f1Ev>	0x55555555526e <_ZN4Base2f2Ev>
+(gdb) x/2a 0x555555557d58
+0x555555557d58 <_ZTV7Derived+16>:	0x55555555529a <_ZN7Derived2f1Ev>	0x55555555526e <_ZN4Base2f2Ev>
+#+end_src
+
+x/2a 指令是 x: examine, 查看内存内容, 2: 表示读取两个word (两个 8 byte), a: 表示把读取到的内容识别为地址, 在 64 位机上它会自动读取 8 byte, 并尝试在符号表 ( Symbol Table ) 里找这个地址对应的函数名
+
+这里 0x555555557d78 是 Base class 的 vtptr 的值, 然后往后读 2 x 8 = 16 byte, 读到的东西是 0x555555555242 <_ZN4Base2f1Ev> 和 0x55555555526e <_ZN4Base2f2Ev>, 也就是 Base class 的 f1 function 和 f2 function 的地址 ( 函数被编译完之后存在 .text 段 )
+0x555555557d58 是 Derived class 的 vptr 的值, 往后读 16 byte, 读到的东西是 0x55555555529a <_ZN7Derived2f1Ev> 和 0x55555555526e <_ZN4Base2f2Ev>, 也就是 Derived class 的 f1 ( 重写了 Base class 的 f1 ), 以及注意, 这里是 0x55555555526e <_ZN4Base2f2Ev>, 也就是 Base class 的 f2 function
+
+因为我们在 Derived class 里面没有重写 Base class 的 virtual function f2, 所以这里还是用的 Base class 的 f2 function, 这个也就是为什么 d.f2() 会得到 Base::f2 这个输出的原因
+
+至于为什么 Base &b_from_d = d; 然后 b_from_d.f1() 输出的是 Derived 的 f1, 这个是因为我们看 b_from_d 的 vptr, 发现他跟 d 的 vptr 完全一样, 从底层来讲, 他自然而然就是会跟 Derived class 的 object 会有一摸一样的表现, 如果从 cpp 的语法上来说的话, reference 只是给一个 alias, 他指向的就是 Derived class 的 object d 的内存, 或者说, b_from_d 和 d 是同一个东西! 我们可以看一下:
+
+#+begin_src bash
+(gdb) print &d
+$3 = (Derived *) 0x7fffffffdee0
+(gdb) print &b_from_d
+$4 = (Base *) 0x7fffffffdee0
+(gdb)
+#+end_src
+
+只是类型不一样罢了, 但是地址是一摸一样的, 一摸一样
+
+我们还能观察到, Base class object b 的 vptr 指向的地址是 0x0000555555557d78, Derived class object d 的 vptr 指向的地址是 0x0000555555557d58, 中间刚好差了 2 x 16 = 32 bytes, 注意到我们的 machine 是每个地址 8 byte, 如果只是存了两个函数的地址的话, 应该只要 2 x 8 = 16 byte, 但是中间隔了 32 byte, 这个是为什么呢? 我们可以打印出来看一下:
+
+#+begin_src bash
+(gdb) x/64bx (char *)(0x555555557d58)
+0x555555557d58 <_ZTV7Derived+16>:	0x9a	0x52	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d60 <_ZTV7Derived+24>:	0x6e	0x52	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d68 <_ZTV4Base>:	0x00	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+0x555555557d70 <_ZTV4Base+8>:	0xa0	0x7d	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d78 <_ZTV4Base+16>:	0x42	0x52	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d80 <_ZTV4Base+24>:	0x6e	0x52	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d88 <_ZTI7Derived>:	0xe8	0xeb	0xe6	0xf7	0xff	0x7f	0x00	0x00
+0x555555557d90 <_ZTI7Derived+8>:	0x28	0x60	0x55	0x55	0x55	0x55	0x00	0x00
+#+end_src
+
+这里我们可以看到
+
+然后我们仔细研究一下这两个 vptr, 我们发现 Base class object b 的 vptr 指向的地址是 0x0000555555557d78, Derived class object d 的 vptr 指向的地址是 0x0000555555557d58, 中间刚好差了 2 x 16 = 32 bytes, 注意到我们的 machine 是每个地址 8 byte, 所以理论上如果只存了函数指针的话, 应该只有 16 byte, 这个是因为 vtable 不只是存了函数指针, linux 下一个 vtable 应该是这样的:
+|--------+---------------+-------------------------------------------------------------------|
+| offset | content       | description                                                       |
+|--------+---------------+-------------------------------------------------------------------|
+|      0 | offset_to_top | 面对多继承时到对象起始地址的偏移                                        |
+|--------+---------------+-------------------------------------------------------------------|
+|     +8 | typeinfo 指针 | 指向 RTTI (Run-Time Type Information), 支持 typeid 和 dynamic_cast |
+|--------+---------------+-------------------------------------------------------------------|
+|    +16 | vfunc1        | 第一个函数指针, 即 object 的前 8 byte 的 vptr 指向的地方                |
+|--------+---------------+-------------------------------------------------------------------|
+|    +32 | vfunc2        | 第二个函数指针                                                      |
+|--------+---------------+-------------------------------------------------------------------|
+
+可以 gdb 进去验证一下:
+#+begin_src bash
+(gdb) x/64bx (char *)(0x555555557d58) - 16
+0x555555557d48 <_ZTV7Derived>:	0x00	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+0x555555557d50 <_ZTV7Derived+8>:	0x88	0x7d	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d58 <_ZTV7Derived+16>:	0x9a	0x52	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d60 <_ZTV7Derived+24>:	0x6e	0x52	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d68 <_ZTV4Base>:	0x00	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+0x555555557d70 <_ZTV4Base+8>:	0xa0	0x7d	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d78 <_ZTV4Base+16>:	0x42	0x52	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d80 <_ZTV4Base+24>:	0x6e	0x52	0x55	0x55	0x55	0x55	0x00	0x00
+#+end_src
+
+offset_to_top: 从当前 vptr 所在的地址到整个对象起始地址的偏移量, 在单继承中, Base 部分就在 Derived 对象的最开头, vptr 的位置就是对象的开头, 所以偏移量为 0, 在多继承 ( 例如 class C : public A, public B) 中, 对象 C 会有两个 vptr, 指向 B 那部分的 vptr 位于对象中间，它的 offset_to_top 就会是一个负数, 告诉编译器: " 往回退 X 字节才是这个对象的真正起点 "
+
+typeinfo 指针: vtable 中最重要的 metadata
+当你使用 typeid(obj) 或者是 dynamic_cast<Target*>(ptr) 时编译器就是通过 vptr -> vtable -> typeinfo 这条线找到这个类到底是谁
+0x555555557d50 位置存的是 0x555555557d88, 而 0x555555557d88 正好是 <_ZTI7Derived> 的起点, 虚表里的这个槽位精准地指向了存储类信息的结构体
+
+我们再看
+0x555555557d88 <_ZTI7Derived>:	0xe8	0xeb	0xe6	0xf7	0xff	0x7f	0x00	0x00
+0x555555557d90 <_ZTI7Derived+8>:	0x28	0x60	0x55	0x55	0x55	0x55	0x00	0x00
+这两行, 这里变成了 _ZTI, 也就是 Type Info, Derived 类的类型描述符, 在 _ZTI7Derived 这个结构体里通常包含:
+1. 指向父类 typeinfo 的指针 ( 这样 dynamic_cast 才能沿着继承树往上找 )
+2. 指向类名字符串的指针 ( 即 _ZTS7Derived, TS 是 Type String )
+
+#+begin_src bash
+(gdb) x/s 0x555555556028
+0x555555556028 <_ZTS7Derived>:	"7Derived"
+#+end_src
+
+这就是 typeid().name() 返回的东西
+
+再往下就是更多别的 cpp 的特性了, 到这里我们已经把 inheritance 和 polymorphism 的底层实现原理看完了, there is no magic in cs, 实际上 cpp 这些特性了完全可以用 c 里面的 struct 和 function pointer 实现, 只不过要手动传递 this 指针, 手动维护 vtable, 手动储存 vptr, 仅此而已, 我们已经很清楚这些了, u1s1, 我觉得 cpp 很丑陋, 不如 c, 在 c 里面这些都是透明的, cpp 里面我们需要 gdb 进去一点一点看内存, 当然这样我们也搞得很清楚了
+
+最后我们再干点坏事, 我们可以把 Base class object b 的 vptr 指向 Derived class 的 vtable, 然后调用 b.f1(), 我们会发现他用的是 Derived class 的 f1, 然后我们再把整个 Derived class 的 vtable 的第一个函数指针改了, 让他指向 Base class f1 这个函数的地址, 然后调用 Derived class 的 object d:
+#+begin_src bash
+(gdb) set *(long*)0x7fffffffded0 = 0x555555557d58
+(gdb) print b.f1()
+Derived::f1
+$7 = void
+(gdb) set *(long*)0x555555557d58 = 0x555555555242
+(gdb) print d.f1()
+Base::f1
+$8 = void
+(gdb)
+#+end_src
+
+excellent! 完全如我们所想, 我们已经在底层把 virtual function 和 polymorphism 搞得很清楚很清楚了
+
+*** (4) pure virtual function & abstract class
+
+我们上面已经把 virtual function 和 polymorphism 在底层搞得无比清楚了, 理解什么是 pure virtual function 和 abstruct class 就跟喝水一样简单了
+
+从语法上讲, 在 virtual function 后面加一个 = 0 就变成了 pure virtual function, pure virtual function 是没有实现的, 他只是占个位置, 从底层上来说, pure function 所在的 vtable 的位置不是一个普通的 .text 段的函数指针, 是一个特殊的符号地址, 比如在 Linux GCC 下叫 __pure_virtual_called
+
+只要一个 class 里面包含至少一个 pure virtual function, 他就变成了 abstract class, 编译器在编译阶段如果看到你实例化 abstract class, 他会直接报错, 原因是如果允许创建 abstract class 的 object, 那么它的 vptr 就会指向 abstract class 的 vtable, 当我们调用那个 pure virtual function 的时候程序就会跳转到 __pure_virtual_called 然后报错崩溃, 为了安全编译器从源头上禁止了这种行为
+
+写一个小 demo 验证一下
+#+begin_src cpp demo
+#include <iostream>
+
+class Shape { // abstract class
+public:
+    virtual void draw() = 0; // pure function
+    virtual void sayHi() { std::cout << "Hi from Shape\n"; }
+};
+
+class Circle : public Shape {
+public:
+    void draw() override { std::cout << "Drawing Circle...\n"; }
+};
+
+int main() {
+    Shape s; // 编译直接报错无法实例化
+    Circle c;
+    Shape* p = &c;
+    p->draw();
+    p->sayHi();
+    return 0;
+}
+#+end_src
+
+然后编译:
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g demo.cpp -o demo
+demo.cpp: In function ‘int main()’:
+demo.cpp:15:11: error: cannot declare variable ‘s’ to be of abstract type ‘Shape’
+   15 |     Shape s; // 编译直接报错无法实例化
+      |           ^
+demo.cpp:3:7: note:   because the following virtual functions are pure within ‘Shape’:
+    3 | class Shape { // abstract class
+      |       ^~~~~
+demo.cpp:5:18: note:     ‘virtual void Shape::draw()’
+    5 |     virtual void draw() = 0; // pure function
+      |                  ^~~~
+(base) zhb:~/Desktop$
+#+end_src
+
+改正之后我们编译, 然后 gdb 进去看看
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g demo.cpp -o demo
+(base) zhb:~/Desktop$ gdb ./demo
+GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./demo...
+(gdb) break main
+Breakpoint 1 at 0x1175: file demo.cpp, line 14.
+(gdb) run
+Starting program: /home/zhb/Desktop/demo
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) y
+Debuginfod has been enabled.
+To make this setting permanent, add 'set debuginfod enabled on' to .gdbinit.
+Downloading separate debug info for system-supplied DSO at 0x7ffff7fc3000
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, main () at demo.cpp:14
+14	int main() {
+(gdb) n
+15	    Circle c;
+(gdb) n
+16	    Shape* p = &c;
+(gdb) n
+17	    p->draw();
+(gdb) n
+Drawing Circle...
+18	    p->sayHi();
+(gdb) n
+Hi from Shape
+19	    return 0;
+(gdb) print sizeof(Shape)
+$1 = 8
+(gdb) print sizeof(Circle)
+$2 = 8
+(gdb) x/8bx (char *)(&c)
+0x7fffffffdee8:	0x78	0x7d	0x55	0x55	0x55	0x55	0x00	0x00
+(gdb) x/2a 0x0000555555557d78
+0x555555557d78 <_ZTV6Circle+16>:	0x555555555208 <_ZN6Circle4drawEv>	0x5555555551dc <_ZN5Shape5sayHiEv>
+(gdb) x/32bx (char *) 0x0000555555557d78 - 16
+0x555555557d68 <_ZTV6Circle>:	0x00	0x00	0x00	0x00	0x00	0x00	0x00	0x00
+0x555555557d70 <_ZTV6Circle+8>:	0x88	0x7d	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d78 <_ZTV6Circle+16>:	0x08	0x52	0x55	0x55	0x55	0x55	0x00	0x00
+0x555555557d80 <_ZTV6Circle+24>:	0xdc	0x51	0x55	0x55	0x55	0x55	0x00	0x00
+#+end_src
+
+这里可以看到 Circle 这个 class 的 vtable 完全是正常的, 然后我们查看一下 Sphere 这个 abstract class 的 vtable
+
+有趣的是, abstract class 的 vtable 并不能通过 &object 然后通过最前面的 8 byte 去查看, 并且在 GCC 的优化下, 实际上我们的二进制文件并不生成 Shape 这个 abstract class 的 vtable ( 因为编译器觉得没必要 ), 如下:
+
+#+begin_src bash
+(base) zhb:~/Desktop$ nm -C demo | grep "vtable for Shape"
+(base) zhb:~/Desktop$ nm -C demo | grep "Shape"
+00000000000011dc W Shape::sayHi()
+0000000000003da0 V typeinfo for Shape
+0000000000002038 V typeinfo name for Shape
+(base) zhb:~/Desktop$
+#+end_src
+
+然后在伟大的 gemini 的指引下, 我们就强制给 Shape 的 draw function 一个定义:
+
+#+begin_src cpp
+#include <iostream>
+
+class Shape {
+public:
+    virtual void draw() = 0; // 纯虚
+    virtual void sayHi();    // 只在这里声明，不要写 { ... }
+};
+
+// 在类外面实现, 这叫 Out-of-line definition
+void Shape::sayHi() {
+    std::cout << "Hi from Shape\n";
+}
+
+class Circle : public Shape {
+public:
+    void draw() override { std::cout << "Drawing Circle...\n"; }
+};
+
+int main() {
+    Circle c;
+    c.draw();
+    return 0;
+}
+#+end_src
+
+然后执行如下指令:
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g demo.cpp -o demo
+(base) zhb:~/Desktop$ gdb ./demo
+GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./demo...
+(gdb) break main
+Breakpoint 1 at 0x11a2: file demo.cpp, line 19.
+(gdb) run
+Starting program: /home/zhb/Desktop/demo
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) y
+Debuginfod has been enabled.
+To make this setting permanent, add 'set debuginfod enabled on' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, main () at demo.cpp:19
+19	int main() {
+(gdb) n
+20	    Circle c;
+(gdb) n
+21	    c.draw();
+(gdb) n
+Drawing Circle...
+22	    return 0;
+(gdb) p /a &_ZTV5Shape
+$1 = 0x555555557d68 <_ZTV5Shape>
+(gdb) x/2a &_ZTV5Shape + 2
+Cannot perform pointer math on incomplete type "<data variable, no debug info>", try casting to a known type, or void *.
+(gdb) x/2a (void**)&_ZTV5Shape + 2
+0x555555557d78 <_ZTV5Shape+16>:	0x7ffff7cbbfa0 <__cxxabiv1::__cxa_pure_virtual()>	0x55555555516a <_ZN5Shape5sayHiEv>
+(gdb)
+#+end_src
+
+具体的解释如下
+1. p /a &_ZTV5Shape
+   这是 Shape class 的 vtable 的符号名,C++ 支持函数重载和类, 但 Linker 只认识唯一的字符串, 所以编译器会对名字进行 "魔改" ( Mangling ), _Z 是 clang 或者 gcc 的前缀, TV 表示 Table Virtual (vtable), 5Shape 里面 5 是 class name 的字符数, Shape 就是 class name, 在 C++ 的二进制层面, _ZTV5Shape 被定义为一个数据的标签, 加上 & 是为了明确告诉 GDB 我要看这个符号所在的内存地址, /a 是 GDB 的格式化参数 ( Format ), p (print) 后面跟 /a 表示以 Address 格式打印
+2. x/2a &_ZTV5Shape + 2
+   很显然了是什么意思, 我们之前讲 vtable 的时候说过, vptr 指向的是 offset + 16 byte 的地方, 然后 _ZTV5Shape 代表 vtable, 所以这里 &_ZTV5Shape + 2 代表以这个格式 + 2, 也就是 16 byte
+3. 报错
+   原因是编译器生成的虚表符号 ( 如 _ZTV5Shape ) 在调试信息里通常没有定义具体的类型 ( 不像 int 或 long ), GDB 只知道这是一个标签不知道它代表的是什么大小的对象, 所以它说 incomplete type, 意思是我不知道 + 1 应该跨越几个字节, 所以我们这里 (void **) 这是一种强行解释, 就是你告诉 GDB " 别管这个符号原本是什么把它当成一个存储 void* ( 通用指针 ) 的数组首地址 ", 因为 void* 在 64 位系统上大小明确为 8 字节, 所以 gdb 就能明确算出 +2 是移动 16 byte
+
+好了, 终于到我们想看的 Shape class 的 vptr 指向的部分了
+0x555555557d78 <_ZTV5Shape+16>:	0x7ffff7cbbfa0 <__cxxabiv1::__cxa_pure_virtual()>	0x55555555516a <_ZN5Shape5sayHiEv>
+
+这里面的 <__cxxabiv1::__cxa_pure_virtual()> 就是 pure virtual function 在 vtable 里面的样子, 这个是由 C++ 标准库提供的特殊函数地址, 如果你用黑魔法调用了它, 它唯一的功能就是打印那句著名的错误信息并 abort() 整个程序
+<_ZN5Shape5sayHiEv> 则是一个正常的函数指针指向的地址, 跟我们在 virtual 里面看到的一摸一样没有任何区别
+
+好了, 在本小节的最后, 让我们调用一下 0x7ffff7cbbfa0 <__cxxabiv1::__cxa_pure_virtual()> 这个函数结尾
+
+#+begin_src bash
+(gdb) call __cxa_pure_virtual()
+pure virtual method called
+The program being debugged entered a std::terminate call, most likely
+caused by an unhandled C++ exception.  GDB blocked this call in order
+to prevent the program from being terminated, and has restored the
+context to its original state before the call.
+To change this behaviour use "set unwind-on-terminating-exception off".
+Evaluation of the expression containing the function (__cxxabiv1::__cxa_pure_virtual())
+will be abandoned.
+(gdb)
+#+end_src
+
+在正常的运行环境中 __cxa_pure_virtual 打印完错误后紧接着会调用 std::terminate(), 这会导致你的进程收到一个 SIGABRT 信号然后直接崩溃退出, 也就是说我现在在跑的 demo 进程就没了, 但是这里 gdb 阻止了我并且会滚到执行这个函数之前
+
+这个报错里提到的 std::terminate 是 C++ 异常处理的终点, 当你调用了一个本不该存在的实现时, C++ 认为程序的逻辑已经彻底崩溃 ( Inconsistent State ), 除了自杀没有更好的办法
+
+我们就按照 gdb 说的, 直接执行
+
+#+begin_src bash
+(gdb) set unwind-on-terminating-exception off
+(gdb) call __cxa_pure_virtual()
+pure virtual method called
+terminate called without an active exception
+
+Program received signal SIGABRT, Aborted.
+Download failed: Invalid argument.  Continuing without source file ./nptl/./nptl/pthread_kill.c.
+__pthread_kill_implementation (no_tid=0, signo=6, threadid=<optimized out>) at ./nptl/pthread_kill.c:44
+warning: 44	./nptl/pthread_kill.c: No such file or directory
+The program being debugged was signaled while in a function called from GDB.
+GDB remains in the frame where the signal was received.
+To change this behavior use "set unwind-on-signal on".
+Evaluation of the expression containing the function
+(__cxxabiv1::__cxa_pure_virtual()) will be abandoned.
+When the function is done executing, GDB will silently stop.
+(gdb) kill
+Kill the program being debugged? (y or n) y
+[Inferior 1 (process 77892) killed]
+#+end_src
+
+完结撒花🎉
+
+** 3. 补档
+
+这节课的主要内容基本是讲完了, 然后翻了一下 ppt, 发现还有东西没有覆盖到, 再讲一下
+
+好吧, 我并没有完全掌握 inheritance 这个东西.....
+
+*** (1) derived class bassic
+[Constructor]:
+call a base class constructor via initializer list
+[Inherits]:
+all of the functions of the base class
+[Inherits]:
+all of the data of the base class
+注意, 这里继承了 parent class 的所有的 data 和 function, 我们之前只是查看了所有的 data, 在最后的最后, 我们用一个综合的例子彻底 check 一下是不是所有的 function 也被继承了
+
+*** (2) A comprehensive example
+
+#+begin_src cpp Sphere.h
+#include <iostream>
+
+class Sphere {
+      public:
+        Sphere(double r) : r_(r) {}
+        void print_1(void) { std::cout << "Sphere" << std::endl; }
+        void print_2(void) { std::cout << "Sphere" << std::endl; }
+        virtual void print_3(void) { std::cout << "Sphere" << std::endl; }
+        virtual void print_4(void) { std::cout << "Sphere" << std::endl; }
+
+      private:
+        void copy_(Sphere const &other) { r_ = other.r_; }
+        double r_;
+};
+
+class RedBall : public Sphere {
+      public:
+        RedBall(double r, double xxx) : Sphere(r), xxx_(xxx) {}
+        // void print_1(void) { std::cout << "Ball" << std::endl; }
+        void print_2(void) { std::cout << "Ball" << std::endl; }
+        // void print_3(void) { std::cout << "Ball" << std::endl; }
+        void print_4(void) { std::cout << "Ball" << std::endl; }
+
+      private:
+        double xxx_;
+};
+
+int main() {
+        Sphere sphere_obj = Sphere(1.0);
+        RedBall r = RedBall(1.0, 4.0);
+        Sphere &obj = r;
+
+        std::cout << "Printing of Sphere sphere_obj: " << std::endl;
+        sphere_obj.print_1();
+        sphere_obj.print_2();
+        sphere_obj.print_3();
+        sphere_obj.print_4();
+        std::cout << std::endl;
+
+        std::cout << "Printing of RedBall r: " << std::endl;
+        r.print_1();
+        r.print_2();
+        r.print_3();
+        r.print_4();
+        std::cout << std::endl;
+
+        std::cout << "Printing of Sphere &obj = r: " << std::endl;
+        obj.print_1();
+        obj.print_2();
+        obj.print_3();
+        obj.print_4();
+
+        return 0;
+}
+#+end_src
+
+运行:
+
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g test.cpp -o test
+(base) zhb:~/Desktop$ ./test
+Printing of Sphere sphere_obj:
+Sphere
+Sphere
+Sphere
+Sphere
+
+Printing of RedBall r:
+Sphere
+Ball
+Sphere
+Ball
+
+Printing of Sphere &obj = r:
+Sphere
+Sphere
+Sphere
+Ball
+#+end_src
+
+然后直接 gdb 进去打印出来:
+#+begin_src bash
+(base) zhb:~/Desktop$ gdb ./test
+GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./test...
+(gdb) break main
+Breakpoint 1 at 0x1195: file test.cpp, line 28.
+(gdb) run
+Starting program: /home/zhb/Desktop/test
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) y
+Debuginfod has been enabled.
+To make this setting permanent, add 'set debuginfod enabled on' to .gdbinit.
+Downloading separate debug info for system-supplied DSO at 0x7ffff7fc3000
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, main () at test.cpp:28
+28	int main() {
+(gdb) n
+29	        Sphere sphere_obj = Sphere(1.0);
+(gdb) n
+30	        RedBall r = RedBall(1.0, 4.0);
+(gdb) n
+31	        Sphere &obj = r;
+(gdb) n
+33	        std::cout << "Printing of Sphere sphere_obj: " << std::endl;
+(gdb) print &sphere_obj
+$1 = (Sphere *) 0x7fffffffded0
+(gdb) print &r
+$2 = (RedBall *) 0x7fffffffdee0
+(gdb) print &obj
+$3 = (Sphere *) 0x7fffffffdee0
+(gdb) print sizeof(Sphere)
+$4 = 16
+(gdb) print sizeof(ReBall)
+No symbol "ReBall" in current context.
+(gdb) print sizeof(RedBall)
+$5 = 24
+(gdb) print sizeof(double)
+$6 = 8
+(gdb) x/8a (void **)&_ZTV7RedBall
+0x555555557d38 <_ZTV7RedBall>:	0x0	0x555555557d78 <_ZTI7RedBall>
+0x555555557d48 <_ZTV7RedBall+16>:	0x555555555404 <_ZN6Sphere7print_3Ev>	0x55555555550c <_ZN7RedBall7print_4Ev>
+0x555555557d58 <_ZTV6Sphere>:	0x0	0x555555557d90 <_ZTI6Sphere>
+0x555555557d68 <_ZTV6Sphere+16>:	0x555555555404 <_ZN6Sphere7print_3Ev>	0x555555555442 <_ZN6Sphere7print_4Ev>
+#+end_src
+
+这里稍微有点乱, 解读一下:
+&_ZTV7RedBall 是 RedBall 的 vtable 的开始地址, 地址为0x555555557d38, 值为 0x0, 表示 offset 为 0
+&_ZTV7RedBall + 1 的地址为 0x555555557d40, 该地址内存的值为 0x555555557d78 <_ZTI7RedBall>, 表示 type info
+&_ZTV7RedBall + 2 和 &_ZTV7RedBall + 3 的地址分别为 0x555555557d48 <_ZTV7RedBall+16> 和 0x55555555550c, 其值为 0x555555555404 <_ZN6Sphere7print_3Ev> 还有 <_ZN7RedBall7print_4Ev>, 因为我们的 Base class Sphere 里面标记了 virtual 的只有 print_3 还有 print_4, 然后只有标记了 virtual 的 function 才会走 vtable, 没有标记 virtual 的函数都是静态绑定的, 都是在编译的时候直接根据变量类型确定了, 比如这里尽管 obj 和 r 的 vptr 一摸一样 ( 两者就是同一个 object ), 但是 obj.print_2() 走的是 Sphere 的, 因为 obj 是 Sphere & 类型, 而 print_2 又不是 virtual 不走 vptr, 所以会有之前的实验现象
+
+还有, 我们可以注意到, 只要 base class 标记了 virtual, 不管 derived class 有没有写 override 关键字, 只要函数签名与基类虚函数一致, 派生类的函数也会自动成为对基类虚函数的重写 ( 多态行为依然生效 )
+
+在 cpp 中, override 是一个可选但推荐使用的关键字 ( 从 cpp11 开始引入 ), 用于在 Derived Class 中显式地标明一个 virtual function 意图重写 base class 中的 virtual function, override 写在派生类虚函数的声明末尾 ( 函数签名之后 ), 表示该函数旨在覆盖基类中的某个虚函数, 如果函数签名与基类虚函数不完全匹配 ( 例如参数类型不同, 返回值不同, 或基类根本没有这个虚函数 ), 编译器会报错从而及早发现错误
+
+如果派生类中写的函数签名与基类虚函数不匹配, 则不会构成重写, 而是变成隐藏 ( 如果函数名相同但参数不同, 基类同名函数被隐藏, 如果返回类型不兼容, 编译错误 ), 更危险的是这种情况编译器通常不会报错, 只会给出警告 ( 取决于编译选项 ), 容易导致运行时调用基类版本而非派生类版本, 造成难以发现的逻辑错误
+
+#+begin_src cpp
+class Base {
+public:
+    virtual void func(int) {}
+};
+
+class Derived : public Base {
+public:
+    void func(double) {}  // 意图重写 func(int)，但参数类型不同
+};
+
+int main() {
+    Derived d;
+    Base* p = &d;
+    p->func(42);   // 调用 Base::func(int)，而不是 Derived::func(double)！
+}
+#+end_src
+
+感觉到这里差不多了, 还有一点关于 inheritance, virtual function, polymorphism 和 object 生命周期相关的东西没讲, 这个已经是第八课的内容了, 就这样吧, 感觉 cpp 好难, 学的要力竭了, 从早上开始学这个, 学到现在一共 8 小时了, 8 h 才学懂最基础的一点东西.....
 
 
 * Useful Tools

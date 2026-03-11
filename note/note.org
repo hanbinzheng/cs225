@@ -2494,7 +2494,6 @@ Derived::show
 
 这里是有点 tricky 的, 看一下最后补档里面的 comprehensive example, 这里会把什么时候静态绑定, 什么时候走 vtable 讲述的很清楚
 
-
 *** (3) about virtual function
 
 在没有 virtual 的情况下, 函数调用是静态绑定的, 编译器在编译时看到 p->func() 会直接根据 p 的指针类型 ( 比如 Base* )跳转到 Base::func 的地址执行
@@ -3207,6 +3206,762 @@ int main() {
 #+end_src
 
 感觉到这里差不多了, 还有一点关于 inheritance, virtual function, polymorphism 和 object 生命周期相关的东西没讲, 这个已经是第八课的内容了, 就这样吧, 感觉 cpp 好难, 学的要力竭了, 从早上开始学这个, 学到现在一共 8 小时了, 8 h 才学懂最基础的一点东西.....
+
+
+* lab inheritance
+
+这个 lab 总的来说不难, 但是由于一些不好的习惯, 或者说不好的实现, 浪费了我大量时间, 或者说也不能算是浪费, 这让我对 cpp 的资源管理有了一个更深的理解
+
+** life cycle
+
+首先, 我们先讲解一下一个对象的生命周期
+
+1. object 被创建的流程是:
+(1) 得到储存该对象的内存
+(2) 如果有 inheritance, 先调用 Base Class 的 constructor 进行初始化, 然后按照声明的顺序对该对象的成员进行初始化, 如果有初始列表, 比如base class的constructor调用, 还有委托构造, 还有初始成员列表, 如果没有初始列表, 就调用default constructor, 如果没有 default constructor 就会报错 ( lab inheritance 经验 ), 注意这里的初始化顺序是按照声明顺序的前后依次初始化的, 跟你在初始成员列表里面初始化的顺序无关, 你在初始列表里写的顺序是毫无作用的
+(3) 执行该 class 的 constructor的函数体
+
+注意, 如果我们在声明 class 的 member 的时候直接对 member 进行了初始化, 编译器默认的行为是把声明时对 member 的初始化写到上面流程的 (2) 里面执行的, 而不是提前执行
+
+2. object生命周期结束的流程是:
+(1) 执行 destructor 的函数体
+(2) 按照声明的反顺序，即最后声明的对象最先，依次对该对象的成员调用 destructor
+(3) 执行 base class 的 destructor 的函数体
+(3) 释放内存
+
+下面写一个小 demo 展示一下, 顺便展示一下有 inheritance 的时候 destructor 的表现
+
+#+begin_src cpp lifecycle.cpp
+#include <iostream>
+#include <string>
+
+class Member {
+public:
+    std::string name;
+    Member(std::string n) : name(n) {
+        std::cout << " Member " << name << " initialized" << std::endl;
+    }
+    ~Member() {
+        std::cout << " Member " << name << " destroyed" << std::endl;
+    }
+};
+
+class Base {
+public:
+    Base() {
+        std::cout << " Base constructor body executed" << std::endl;
+    }
+
+   /* no virtual */
+    ~Base() {
+        std::cout << " Base destructor body executed" << std::endl;
+    }
+};
+
+class Derived : public Base {
+public:
+    /* initialization will follow the declared order enven though not so in the initialization list */
+    Member m1;
+    Member m2 = Member("M2");
+    Member m3;
+
+    /* literaturally, first M3 then M1, finally Base(), but actually first Base(), then M1, and finally M3 */
+    Derived() : m3("M3"), m1("M1"), Base() { /* bad notation, only for demo purpose */
+        std::cout << " Derived constructor body executed" << std::endl;
+    }
+
+    ~Derived() {
+        std::cout << " Derived destructor body executed" << std::endl;
+    }
+};
+
+int main() {
+    std::cout << std::endl << "--- Scenario 1: Correct Lifecycle (Local Object) ---" << std::endl;
+    {
+        Derived d;
+    }
+    /* d out of scope, the whole process will be demonstrate */
+
+    std::cout << "--- Scenario 2: Polymorphic Danger (Non-virtual Destructor) ---" << std::endl;
+    Base* ptr = new Derived();
+    std::cout << " Deleting via Base* ..." << std::endl;
+    delete ptr;
+
+    return 0;
+}
+#+end_src
+
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g lifecycle.cpp -o lifecycle
+(base) zhb:~/Desktop$ ./lifecycle
+
+--- Scenario 1: Correct Lifecycle (Local Object) ---
+ Base constructor body executed
+ Member M1 initialized
+ Member M2 initialized
+ Member M3 initialized
+ Derived constructor body executed
+ Derived destructor body executed
+ Member M3 destroyed
+ Member M2 destroyed
+ Member M1 destroyed
+ Base destructor body executed
+--- Scenario 2: Polymorphic Danger (Non-virtual Destructor) ---
+ Base constructor body executed
+ Member M1 initialized
+ Member M2 initialized
+ Member M3 initialized
+ Derived constructor body executed
+ Deleting via Base* ...
+ Base destructor body executed
+#+end_src
+
+在 Scenario 1 里面我们可以看到, 这个 object 的创建和销毁是一个完全对称的情况, 而且实际上只要 object 离开了作用域, 他的生命周期结束, 这个流程:
+本class的destructor -> 按顺序调用member的destructor->base class的destructor -> 释放内存
+是一定会发生的, 编译器保证无论发生什么 ( 正常退出, return, 抛出异常 ) 都一定会在该对象离开作用域时调用它的析构函数
+
+但是注意即使你不在初始列表里面调用 Base class 的 constructor, 他还是会调用的, 不过这个时候调用的是 Base Class 的 default constructor, 同理即使你不在 initialization list 里面进行初始成员列表初始化 member, 编译器还是会默认的调用该 member 的 default constructor, 例如下:
+#+begin_src cpp
+#include <iostream>
+#include <string>
+
+class Member {
+public:
+    std::string name;
+    Member(std::string n) : name(n) {
+        std::cout << " Member " << name << " initialized" << std::endl;
+    }
+    Member() : name("default member") {
+	    std::cout << "Member" << name << "initialized" << std::endl;
+    }
+    ~Member() {
+        std::cout << " Member " << name << " destroyed" << std::endl;
+    }
+};
+
+class Base {
+public:
+    Base() {
+        std::cout << " Base constructor body executed" << std::endl;
+    }
+
+   /* no virtual */
+    ~Base() {
+        std::cout << " Base destructor body executed" << std::endl;
+    }
+};
+
+class Derived : public Base {
+public:
+    /* initialization will follow the declared order enven though not so in the initialization list */
+    Member m1;
+    Member m2 = Member("M2");
+    Member m3;
+    Member m4;
+
+    /* literaturally, first M3 then M1, finally Base(), but actually first Base(), then M1, and finally M3 */
+    Derived() : m3("M3"), m1("M1") { /* bad notation, only for demo purpose */
+        std::cout << " Derived constructor body executed" << std::endl;
+    }
+
+    ~Derived() {
+        std::cout << " Derived destructor body executed" << std::endl;
+    }
+};
+
+int main() {
+    std::cout << std::endl << "--- Scenario 1: Correct Lifecycle (Local Object) ---" << std::endl;
+    {
+        Derived d;
+    }
+    /* d out of scope, the whole process will be demonstrate */
+
+    std::cout << "--- Scenario 2: Polymorphic Danger (Non-virtual Destructor) ---" << std::endl;
+    Base* ptr = new Derived();
+    std::cout << " Deleting via Base* ..." << std::endl;
+    delete ptr;
+
+    return 0;
+}
+#+end_src
+
+然后编译执行:
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g lifecycle.cpp -o lifecycle
+(base) zhb:~/Desktop$ ./lifecycle
+
+--- Scenario 1: Correct Lifecycle (Local Object) ---
+ Base constructor body executed
+ Member M1 initialized
+ Member M2 initialized
+ Member M3 initialized
+Memberdefault memberinitialized
+ Derived constructor body executed
+ Derived destructor body executed
+ Member default member destroyed
+ Member M3 destroyed
+ Member M2 destroyed
+ Member M1 destroyed
+ Base destructor body executed
+--- Scenario 2: Polymorphic Danger (Non-virtual Destructor) ---
+ Base constructor body executed
+ Member M1 initialized
+ Member M2 initialized
+ Member M3 initialized
+Memberdefault memberinitialized
+ Derived constructor body executed
+ Deleting via Base* ...
+ Base destructor body executed
+(base) zhb:~/Desktop$
+#+end_src
+
+好了, Scenario 1 是对一个 object 的 lifecycle 的一个粗浅的了解, 接下来我们看看有 inheritance 的时候这个 life cycle 会发生什么变换, 你看这里的 Scenario 2 里面 delete 的时候调用的是 Base class 的 destructor, 而不是 Derived class 的 destructor, 这个导致我们实际上并没有释放 new Derived() 这里的 heap 空间, 我们可以 valgrind 查看一下
+
+#+begin_src bash
+(base) zhb:~/Desktop$ valgrind --leak-check=full ./lifecycle
+==15329== Memcheck, a memory error detector
+==15329== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==15329== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==15329== Command: ./lifecycle
+==15329==
+
+--- Scenario 1: Correct Lifecycle (Local Object) ---
+ Base constructor body executed
+ Member M1 initialized
+ Member M2 initialized
+ Member M3 initialized
+ Derived constructor body executed
+ Derived destructor body executed
+ Member M3 destroyed
+ Member M2 destroyed
+ Member M1 destroyed
+ Base destructor body executed
+--- Scenario 2: Polymorphic Danger (Non-virtual Destructor) ---
+ Base constructor body executed
+ Member M1 initialized
+ Member M2 initialized
+ Member M3 initialized
+ Derived constructor body executed
+ Deleting via Base* ...
+ Base destructor body executed
+==15329== Mismatched new/delete size value: 1
+==15329==    at 0x484A5B9: operator delete(void*, unsigned long) (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==15329==    by 0x10A4C2: main (lifecycle.cpp:54)
+==15329==  Address 0x4e2d4c0 is 0 bytes inside a block of size 96 alloc'd
+==15329==    at 0x4846FA3: operator new(unsigned long) (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==15329==    by 0x10A45E: main (lifecycle.cpp:52)
+==15329==
+==15329==
+==15329== HEAP SUMMARY:
+==15329==     in use at exit: 0 bytes in 0 blocks
+==15329==   total heap usage: 3 allocs, 3 frees, 74,848 bytes allocated
+==15329==
+==15329== All heap blocks were freed -- no leaks are possible
+==15329==
+==15329== For lists of detected and suppressed errors, rerun with: -s
+==15329== ERROR SUMMARY: 1 errors from 1 contexts (suppressed: 0 from 0)
+(base) zhb:~/Desktop$
+#+end_src
+
+看, 这里是有很明显的内存泄漏的问题的, 这个原因就是 Base Class 的 destructor 不是一个 virtual, 根据我们之前在 lecture 07 讲述的, 如果没有被 virtual 标记, 对于这个函数编译器并不会采取 vptr 去 vtable 寻址的方式调用, 而是直接在编译时静态绑定, 是什么类型就调用什么类型的 destructor, 这里是 Base * ptr 的指向 Base class object 的指针, 所以自然调用的就是 Base class 的 destructor, 如果不信的话我们可以 gdb 进去看一下
+
+#+begin_src bash
+(base) zhb:~/Desktop$ gdb ./lifecycle
+GNU gdb (Ubuntu 15.0.50.20240403-0ubuntu1) 15.0.50.20240403-git
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./lifecycle...
+(gdb) b main
+Breakpoint 1 at 0x23bd: file lifecycle.cpp, line 48.
+(gdb) run
+Starting program: /home/zhb/Desktop/lifecycle
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Enable debuginfod for this session? (y or [n]) y
+Debuginfod has been enabled.
+To make this setting permanent, add 'set debuginfod enabled on' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, main () at lifecycle.cpp:48
+48	int main() {
+(gdb) n
+49	    std::cout << std::endl << "--- Scenario 1: Correct Lifecycle (Local Object) ---" << std::endl;
+(gdb) n
+
+--- Scenario 1: Correct Lifecycle (Local Object) ---
+51	        Derived d;
+(gdb) n
+ Base constructor body executed
+ Member M1 initialized
+ Member M2 initialized
+ Member M3 initialized
+Memberdefault memberinitialized
+ Derived constructor body executed
+52	    }
+(gdb) n
+ Derived destructor body executed
+ Member default member destroyed
+ Member M3 destroyed
+ Member M2 destroyed
+ Member M1 destroyed
+ Base destructor body executed
+55	    std::cout << "--- Scenario 2: Polymorphic Danger (Non-virtual Destructor) ---" << std::endl;
+(gdb) n
+--- Scenario 2: Polymorphic Danger (Non-virtual Destructor) ---
+56	    Base* ptr = new Derived();
+(gdb) n
+ Base constructor body executed
+ Member M1 initialized
+ Member M2 initialized
+ Member M3 initialized
+Memberdefault memberinitialized
+ Derived constructor body executed
+57	    std::cout << " Deleting via Base* ..." << std::endl;
+(gdb) print ptr
+$1 = (Base *) 0x55555556c6c0
+(gdb) print sizeof(*ptr)
+$2 = 1
+(gdb) n
+ Deleting via Base* ...
+58	    delete ptr;
+(gdb) disassemble /m
+Dump of assembler code for function main():
+48	int main() {
+   0x00005555555563a9 <+0>:	endbr64
+   0x00005555555563ad <+4>:	push   %rbp
+   0x00005555555563ae <+5>:	mov    %rsp,%rbp
+   0x00005555555563b1 <+8>:	push   %r13
+   0x00005555555563b3 <+10>:	push   %r12
+   0x00005555555563b5 <+12>:	push   %rbx
+   0x00005555555563b6 <+13>:	sub    $0xa8,%rsp
+   0x00005555555563bd <+20>:	mov    %fs:0x28,%rax
+   0x00005555555563c6 <+29>:	mov    %rax,-0x28(%rbp)
+   0x00005555555563ca <+33>:	xor    %eax,%eax
+
+49	    std::cout << std::endl << "--- Scenario 1: Correct Lifecycle (Local Object) ---" << std::endl;
+   0x00005555555563cc <+35>:	mov    0x2c05(%rip),%rax        # 0x555555558fd8
+   0x00005555555563d3 <+42>:	mov    %rax,%rsi
+   0x00005555555563d6 <+45>:	lea    0x2c63(%rip),%rax        # 0x555555559040 <_ZSt4cout@GLIBCXX_3.4>
+   0x00005555555563dd <+52>:	mov    %rax,%rdi
+   0x00005555555563e0 <+55>:	call   0x555555556230 <_ZNSolsEPFRSoS_E@plt>
+   0x00005555555563e5 <+60>:	mov    %rax,%rdx
+   0x00005555555563e8 <+63>:	lea    0xcf9(%rip),%rax        # 0x5555555570e8
+   0x00005555555563ef <+70>:	mov    %rax,%rsi
+   0x00005555555563f2 <+73>:	mov    %rdx,%rdi
+   0x00005555555563f5 <+76>:	call   0x555555556200 <_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_PKc@plt>
+   0x00005555555563fa <+81>:	mov    0x2bd7(%rip),%rdx        # 0x555555558fd8
+   0x0000555555556401 <+88>:	mov    %rdx,%rsi
+   0x0000555555556404 <+91>:	mov    %rax,%rdi
+   0x0000555555556407 <+94>:	call   0x555555556230 <_ZNSolsEPFRSoS_E@plt>
+
+50	    {
+51	        Derived d;
+   0x000055555555640c <+99>:	lea    -0xb0(%rbp),%rax
+   0x0000555555556413 <+106>:	mov    %rax,%rdi
+   0x0000555555556416 <+109>:	call   0x55555555681c <_ZN7DerivedC2Ev>
+
+52	    }
+   0x000055555555641b <+114>:	lea    -0xb0(%rbp),%rax
+   0x0000555555556422 <+121>:	mov    %rax,%rdi
+   0x0000555555556425 <+124>:	call   0x555555556a96 <_ZN7DerivedD2Ev>
+
+53	    /* d out of scope, the whole process will be demonstrate */
+54
+55	    std::cout << "--- Scenario 2: Polymorphic Danger (Non-virtual Destructor) ---" << std::endl;
+   0x000055555555642a <+129>:	lea    0xcef(%rip),%rax        # 0x555555557120
+   0x0000555555556431 <+136>:	mov    %rax,%rsi
+   0x0000555555556434 <+139>:	lea    0x2c05(%rip),%rax        # 0x555555559040 <_ZSt4cout@GLIBCXX_3.4>
+   0x000055555555643b <+146>:	mov    %rax,%rdi
+   0x000055555555643e <+149>:	call   0x555555556200 <_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_PKc@plt>
+--Type <RET> for more, q to quit, c to continue without paging--
+   0x0000555555556443 <+154>:	mov    0x2b8e(%rip),%rdx        # 0x555555558fd8
+   0x000055555555644a <+161>:	mov    %rdx,%rsi
+   0x000055555555644d <+164>:	mov    %rax,%rdi
+   0x0000555555556450 <+167>:	call   0x555555556230 <_ZNSolsEPFRSoS_E@plt>
+
+56	    Base* ptr = new Derived();
+   0x0000555555556455 <+172>:	mov    $0x80,%edi
+   0x000055555555645a <+177>:	call   0x555555556210 <_Znwm@plt>
+   0x000055555555645f <+182>:	mov    %rax,%rbx
+   0x0000555555556462 <+185>:	mov    $0x1,%r13d
+   0x0000555555556468 <+191>:	mov    %rbx,%rdi
+   0x000055555555646b <+194>:	call   0x55555555681c <_ZN7DerivedC2Ev>
+   0x0000555555556470 <+199>:	mov    %rbx,-0xb8(%rbp)
+   0x00005555555564dd <+308>:	mov    %rax,%r12
+   0x00005555555564e0 <+311>:	test   %r13b,%r13b
+   0x00005555555564e3 <+314>:	je     0x5555555564f2 <main()+329>
+   0x00005555555564e5 <+316>:	mov    $0x80,%esi
+   0x00005555555564ea <+321>:	mov    %rbx,%rdi
+   0x00005555555564ed <+324>:	call   0x555555556220 <_ZdlPvm@plt>
+   0x00005555555564f2 <+329>:	mov    %r12,%rax
+   0x00005555555564f5 <+332>:	mov    -0x28(%rbp),%rdx
+   0x00005555555564f9 <+336>:	sub    %fs:0x28,%rdx
+   0x0000555555556502 <+345>:	je     0x555555556509 <main()+352>
+   0x0000555555556504 <+347>:	call   0x555555556270 <__stack_chk_fail@plt>
+   0x0000555555556509 <+352>:	mov    %rax,%rdi
+   0x000055555555650c <+355>:	call   0x555555556290 <_Unwind_Resume@plt>
+
+57	    std::cout << " Deleting via Base* ..." << std::endl;
+   0x0000555555556477 <+206>:	lea    0xce2(%rip),%rax        # 0x555555557160
+   0x000055555555647e <+213>:	mov    %rax,%rsi
+   0x0000555555556481 <+216>:	lea    0x2bb8(%rip),%rax        # 0x555555559040 <_ZSt4cout@GLIBCXX_3.4>
+   0x0000555555556488 <+223>:	mov    %rax,%rdi
+   0x000055555555648b <+226>:	call   0x555555556200 <_ZStlsISt11char_traitsIcEERSt13basic_ostreamIcT_ES5_PKc@plt>
+   0x0000555555556490 <+231>:	mov    0x2b41(%rip),%rdx        # 0x555555558fd8
+   0x0000555555556497 <+238>:	mov    %rdx,%rsi
+   0x000055555555649a <+241>:	mov    %rax,%rdi
+   0x000055555555649d <+244>:	call   0x555555556230 <_ZNSolsEPFRSoS_E@plt>
+
+58	    delete ptr;
+=> 0x00005555555564a2 <+249>:	mov    -0xb8(%rbp),%rbx
+   0x00005555555564a9 <+256>:	test   %rbx,%rbx
+   0x00005555555564ac <+259>:	je     0x5555555564c3 <main()+282>
+   0x00005555555564ae <+261>:	mov    %rbx,%rdi
+   0x00005555555564b1 <+264>:	call   0x5555555567de <_ZN4BaseD2Ev>
+   0x00005555555564b6 <+269>:	mov    $0x1,%esi
+   0x00005555555564bb <+274>:	mov    %rbx,%rdi
+   0x00005555555564be <+277>:	call   0x555555556220 <_ZdlPvm@plt>
+
+--Type <RET> for more, q to quit, c to continue without paging--
+59
+60	    return 0;
+   0x00005555555564c3 <+282>:	mov    $0x0,%eax
+
+61	}
+   0x00005555555564c8 <+287>:	mov    -0x28(%rbp),%rdx
+   0x00005555555564cc <+291>:	sub    %fs:0x28,%rdx
+   0x00005555555564d5 <+300>:	je     0x555555556516 <main()+365>
+   0x00005555555564d7 <+302>:	jmp    0x555555556511 <main()+360>
+   0x00005555555564d9 <+304>:	endbr64
+   0x0000555555556511 <+360>:	call   0x555555556270 <__stack_chk_fail@plt>
+   0x0000555555556516 <+365>:	add    $0xa8,%rsp
+   0x000055555555651d <+372>:	pop    %rbx
+   0x000055555555651e <+373>:	pop    %r12
+   0x0000555555556520 <+375>:	pop    %r13
+   0x0000555555556522 <+377>:	pop    %rbp
+   0x0000555555556523 <+378>:	ret
+
+End of assembler dump.
+(gdb)
+#+end_src
+
+注意, 我们 print sizeof(*ptr) 得到的是 1 byte, 这个是因为 Base class 实际上一个数据都没有, 但是我们如果要创建 Base class 的 array 的话, 必须有个东西占位, 所以这里给了 1 byte, 我们之后如果把 Base class 的 destructor 写成 virtual, sizeof(*ptr) 就会变成 8 byte, 即 vptr 的大小
+
+这里按照 gemini 的意思, 直接查看了编译的汇编代码, 虽然我也看不懂 x86 汇编, 但是我们可以在 gemini 的指导下看一下关键地方
+
+#+begin_src bash
+58	    delete ptr;
+=> 0x00005555555564a2 <+249>:	mov    -0xb8(%rbp),%rbx   # 1. 把指针 ptr 的值读入 rbx
+   0x00005555555564a9 <+256>:	test   %rbx,%rbx          # 2. 检查 ptr 是否为 NULL (安全检查)
+   0x00005555555564ac <+259>:	je     0x5555555564c3     # 3. 如果是 NULL，直接跳过不执行 delete
+   0x00005555555564ae <+261>:	mov    %rbx,%rdi          # 4. 把对象地址作为参数传给析构函数
+   0x00005555555564b1 <+264>:	call   0x5555555567de <_ZN4BaseD2Ev>  # 5. 【关键点】硬编码调用 Base 的析构函数！
+   0x00005555555564b6 <+269>:	mov    $0x1,%esi          # 6. 准备 delete 内存的大小/参数
+   0x00005555555564bb <+274>:	mov    %rbx,%rdi          # 7. 把内存地址传给 operator delete
+   0x00005555555564be <+277>:	call   0x555555556220 <_ZdlPvm@plt>   # 8. 调用内存释放函数
+#+end_src
+
+这个是 delete 这个 Base * ptr 时候的对应汇编, 可以看到  0x00005555555564b1 <+264>:	call   0x5555555567de <_ZN4BaseD2Ev>  这里是直接 call 了 Base 的 destructor
+
+然后我们看一下上面的生命周期开始的时候相关的对应汇编, 对于局部变量 d:
+#+begin_src bash
+51	        Derived d;
+   ... call <_ZN7DerivedC2Ev>  # 调用构造函数
+52	    }
+   ... call <_ZN7DerivedD2Ev>  # 作用域结束，自动调用析构函数
+#+end_src
+
+这里证实了我们关于生命周期的一些认识
+
+然后我们把对应的 Base class 的 destructor 改成 virtual 的, 然后运行一下程序, 同时 gdb 进去看一下:
+
+#+begin_src cpp
+#include <iostream>
+#include <string>
+
+class Member {
+public:
+    std::string name;
+    Member(std::string n) : name(n) {
+        std::cout << " Member " << name << " initialized" << std::endl;
+    }
+    Member() : name("default member") {
+	    std::cout << "Member" << name << "initialized" << std::endl;
+    }
+    ~Member() {
+        std::cout << " Member " << name << " destroyed" << std::endl;
+    }
+};
+
+class Base {
+public:
+    Base() {
+        std::cout << " Base constructor body executed" << std::endl;
+    }
+
+   /* no virtual */
+    virtual ~Base() {
+        std::cout << " Base destructor body executed" << std::endl;
+    }
+};
+
+class Derived : public Base {
+public:
+    /* initialization will follow the declared order enven though not so in the initialization list */
+    Member m1;
+    Member m2 = Member("M2");
+    Member m3;
+    Member m4;
+
+    /* literaturally, first M3 then M1, finally Base(), but actually first Base(), then M1, and finally M3 */
+    Derived() : m3("M3"), m1("M1") { /* bad notation, only for demo purpose */
+        std::cout << " Derived constructor body executed" << std::endl;
+    }
+
+    ~Derived() override {
+        std::cout << " Derived destructor body executed" << std::endl;
+    }
+};
+
+int main() {
+    std::cout << std::endl << "--- Scenario 1: Correct Lifecycle (Local Object) ---" << std::endl;
+    {
+        Derived d;
+    }
+    /* d out of scope, the whole process will be demonstrate */
+
+    std::cout << "--- Scenario 2: Polymorphic Danger (Virtual Destructor) ---" << std::endl;
+    Base* ptr = new Derived();
+    std::cout << " Deleting via Base* ..." << std::endl;
+    delete ptr;
+
+    return 0;
+}
+#+end_src
+
+#+begin_src bash
+(base) zhb:~/Desktop$ g++ -g lifecycle.cpp -o lifecycle
+(base) zhb:~/Desktop$ ./lifecycle
+
+--- Scenario 1: Correct Lifecycle (Local Object) ---
+ Base constructor body executed
+ Member M1 initialized
+ Member M2 initialized
+ Member M3 initialized
+Memberdefault memberinitialized
+ Derived constructor body executed
+ Derived destructor body executed
+ Member default member destroyed
+ Member M3 destroyed
+ Member M2 destroyed
+ Member M1 destroyed
+ Base destructor body executed
+--- Scenario 2: Polymorphic Danger (Virtual Destructor) ---
+ Base constructor body executed
+ Member M1 initialized
+ Member M2 initialized
+ Member M3 initialized
+Memberdefault memberinitialized
+ Derived constructor body executed
+ Deleting via Base* ...
+ Derived destructor body executed
+ Member default member destroyed
+ Member M3 destroyed
+ Member M2 destroyed
+ Member M1 destroyed
+ Base destructor body executed
+#+end_src
+
+可见这里在 delete 这个 Base * ptr 的时候正确调用了 Derived class 的 Destructor, 我们来 gdb 看一下相关的汇编, 然后见识一下 Destructor 相关的函数指针长啥样, 先只看一下这里的汇编
+
+#+begin_src bash
+58	    delete ptr;
+=> 0x00005555555564a2 <+249>:	mov    -0xb8(%rbp),%rax
+   0x00005555555564a9 <+256>:	test   %rax,%rax
+   0x00005555555564ac <+259>:	je     0x5555555564bd <main()+276>
+   0x00005555555564ae <+261>:	mov    (%rax),%rdx
+   0x00005555555564b1 <+264>:	add    $0x8,%rdx
+   0x00005555555564b5 <+268>:	mov    (%rdx),%rdx
+   0x00005555555564b8 <+271>:	mov    %rax,%rdi
+   0x00005555555564bb <+274>:	call   *%rdx
+#+end_src
+
+我确实是看不懂汇编的, 但是 gemini 的解释是
+
+#+begin_src bash
+58	    delete ptr;
+=> 0x00005555555564a2 <+249>:	mov    -0xb8(%rbp),%rax   # 1. rax = ptr (对象的首地址)
+   0x00005555555564a9 <+256>:	test   %rax,%rax          # 检查是否为 NULL
+   0x00005555555564ac <+259>:	je     0x5555555564bd
+
+   # --- 核心动态查表开始 ---
+   0x00005555555564ae <+261>:	mov    (%rax),%rdx        # 2. rdx = *rax (获取对象头部的 vptr)
+   0x00005555555564b1 <+264>:	add    $0x8,%rdx          # 3. rdx = rdx + 8 (移动到虚表中的第二个槽位)
+   0x00005555555564b5 <+268>:	mov    (%rdx),%rdx        # 4. rdx = *rdx (从虚表里取出真正的函数地址)
+
+   0x00005555555564b8 <+271>:	mov    %rax,%rdi          # 准备 this 指针
+   0x00005555555564bb <+274>:	call   *%rdx               # 5. 间接调用！跳转到 rdx 里的地址
+#+end_src
+
+我们可以查看一下 vptr, vtable, 还有对应的函数指针, 这里因为是 destructor, 和我们在 lecture 07 碰到的那种相比似乎有点不同:
+
+#+begin_src bash
+(gdb) x/gx 0x55555556c6c0
+0x55555556c6c0:	0x0000555555558cb0
+(gdb) x/8a (long *) 0x0000555555558cb0 - 2
+0x555555558ca0 <_ZTV7Derived>:	0x0	0x555555558ce0 <_ZTI7Derived>
+0x555555558cb0 <_ZTV7Derived+16>:	0x555555556af2 <_ZN7DerivedD2Ev>	0x555555556b8a <_ZN7DerivedD0Ev>
+0x555555558cc0 <_ZTV4Base>:	0x0	0x555555558cf8 <_ZTI4Base>
+0x555555558cd0 <_ZTV4Base+16>:	0x5555555567e6 <_ZN4BaseD2Ev>	0x555555556832 <_ZN4BaseD0Ev>
+#+end_src
+
+我们又一次看见这个 vtable 了, gdb 的格式还是那么一言难尽, 整理一下, 我们这里只整理 Derived Class 的, Base Class 的很类似的一下就能看懂的:
+
+|----------------+----------------+---------------------------------------------|
+|        内存地址 |     地址里的内容 | 对应符号以及作用                               |
+|----------------+----------------+---------------------------------------------|
+| 0x555555558ca0 |            0x0 | <_ZTV7Derived>, 即 offset_to_top            |
+|----------------+----------------+---------------------------------------------|
+| 0x555555558ca8 | 0x555555558ce0 | <_ZTI7Derived>, 即 typeinfo 指针             |
+|----------------+----------------+---------------------------------------------|
+| 0x555555558cb0 | 0x555555556af2 | <_ZN7DerivedD2Ev>, D2 (Complete) Destructor |
+|----------------+----------------+---------------------------------------------|
+| 0x555555558cb8 | 0x555555556b8a | <_ZN7DerivedD0Ev>, D0 (Deleting) Destructor |
+|----------------+----------------+---------------------------------------------|
+
+这里面的 <_ZN7DerivedD2Ev> 表示 Base Object Destructor, 它负责销毁当前类的成员并调用父类的析构, 它不负责释放内存
+
+D0 ( 对应看到的 D0Ev ): Deleting Destructor, 它是虚表里真正被 delete ptr 调用的, 它会先调用 D2 销毁对象然后调用 operator delete 释放堆内存
+Gemini 的解释如下:
+更具体的说, 在 GCC 和 Clang 遵循的 Itanium C++ ABI 规范中, 为了处理不同的销毁场景, 编译器会为一个 virtual ~Destructor 生成多个入口点, 你看到的 D0 和 D2 就是其中最核心的两个
+
+D2: Base Object Destructor ( 基础析构 )
+- 对应代码: 它最接近你写的那个 ~ClassName() { ... } 的函数体
+- 职责:
+  - 执行你写的析构函数体, 如 std::cout << ...
+  - 逆序调用成员变量, 如你的 Member m1, m2的析构函数
+  - 调用基类的析构函数
+关键点: 它只负责清理资源, 不负责释放内存, 它通常用于销毁栈上的对象, 或者作为子类析构链的一部分
+
+D0: Deleting Destructor ( 删除析构 )
+- 对应代码: 这是一个由编译器生成的 “包装函数”
+- 职责:
+  - 调用 D2 ( 完成上面的所有清理工作 )
+  - 调用 operator delete ( 释放该对象占用的堆内存 )
+关键点: 当你执行 delete ptr; 时, 虚表里被调用的实际是这个 D, 。因为它知道如何完整地 "毁尸灭迹"
+
+我们下面干点坏事验证一下, 我们将把 Derived Class 的 D0 destructor 换成 Base Class 的 D0 destructor
+
+#+begin_src bash
+(gdb) n
+ Deleting via Base* ...
+58	    delete ptr;
+(gdb) print sizeof(*ptr)
+$2 = 8
+(gdb) print ptr
+$3 = (Base *) 0x55555556c6c0
+(gdb) x/gx 0x55555556c6c0
+0x55555556c6c0:	0x0000555555558cb0
+(gdb) x/4a 0x0000555555558cb0
+0x555555558cb0 <_ZTV7Derived+16>:	0x555555556af2 <_ZN7DerivedD2Ev>	0x555555556b8a <_ZN7DerivedD0Ev>
+0x555555558cc0 <_ZTV4Base>:	0x0	0x555555558cf8 <_ZTI4Base>
+(gdb) x/8a 0x0000555555558cb0 - 2
+0x555555558cae <_ZTV7Derived+14>:	0x555555556af20000	0x555555556b8a0000
+0x555555558cbe <_ZTV7Derived+30>:	0x0	0x555555558cf80000
+0x555555558cce <_ZTV4Base+14>:	0x5555555567e60000	0x5555555568320000
+0x555555558cde <_ZTV4Base+30>:	0x7ffff7e6ebe80000	0x5555555571b00000
+(gdb) x/8a (long *) 0x0000555555558cb0 - 2
+0x555555558ca0 <_ZTV7Derived>:	0x0	0x555555558ce0 <_ZTI7Derived>
+0x555555558cb0 <_ZTV7Derived+16>:	0x555555556af2 <_ZN7DerivedD2Ev>	0x555555556b8a <_ZN7DerivedD0Ev>
+0x555555558cc0 <_ZTV4Base>:	0x0	0x555555558cf8 <_ZTI4Base>
+0x555555558cd0 <_ZTV4Base+16>:	0x5555555567e6 <_ZN4BaseD2Ev>	0x555555556832 <_ZN4BaseD0Ev>
+(gdb) set *(long *)0x555555558cb8 = 0x555555556832
+(gdb) x/2a 0x555555558cb0
+0x555555558cb0 <_ZTV7Derived+16>:	0x555555556af2 <_ZN7DerivedD2Ev>	0x555555556832 <_ZN4BaseD0Ev>
+(gdb) continue
+Continuing.
+ Base destructor body executed
+[Inferior 1 (process 16180) exited normally]
+(gdb)
+#+end_src
+
+完美, 你看这里我们调用了 Base class 的 destructor, 这个是因为我们成功修改了 vtable 里面的槽位, 我们对 cpp 的对象的生命周期的了解这样应该已经相当详细了
+
+** Resource Management: more on RAII
+
+#+begin_quote
+在这里, 我们暂且先把资源认定为 heap 上 new 的 memory, 但实际上资源类型很多, 比如打开的文件句柄
+#+end_quote
+
+cpp 资源管理的核心思想就是我们不应该手动管理任何资源, 我们应该利用对象的生命周期, 或者说生命周期开始和结束必然执行的 constructor 和 destructor 这个特性来管理资源 ( 因为这个是绝对的, 即使有异常处理, 只要离开作用域 destructor 被保证一定执行 ), 具体的来说, 就是对象生命周期开始的时候获取资源, 对象的生命周期结束的时候释放资源, 将资源的生命周期和对象的生命周期强行绑定, 同时明确资源的所有权, 采取 "谁拥有谁负责" 的思路把资源的所有权给予对象, 由拥有资源的对象负责资源的获得/资源所有权转交/资源的释放
+
+上面讲的有点抽象了, 下面讲的具体一点:
+
+根据我们在 ECE220 里面的 run time stack 学到的知识, 我们清楚的知道 stack 是如何管理变量的, 在 cpp 里的逻辑是和 ECE220 里面的 c 语言的逻辑一摸一样的, 唯一的区别是我们保证 stack 在摧毁 cpp 的一个 object 的时候会调用这个 object 对应的 destructor, 这个是被严格保证的, 好了下面开始讲这个逻辑
+
+因为生命周期开始 ( 比如 object 被创建 ) 时一定会调用 constructor, 而生命周期结束 ( 比如离开作用域 ) 时一定会调用 destructor 是一定会被调用的, 所以资源的获取和资源的释放自然而然就被放在了 constructor 和 destructor 上面, 这个流程保证了我们一定会执行 " 资源的获取和释放 " 这两个流程
+
+好了再来看一下我们的困境, 通常我们的问题是忘记释放资源, 我们有什么办法可以摆脱这个问题呢?
+1. 我们不需要手动释放资源, 上面过程中描述的 " 调用每个 member 的 destructor " 就可以完成资源的释放, 或者说, 我们不需要手写 destructor, default destructor 就可以完成资源释放的任务
+2. 每个 member 的 destructor 不足以释放资源, 我们需要写一个 custom destructor 来释放那些没有被释放的资源
+
+很自然的, 最佳选择是不要手动管理, 即依次调用每个 member 的 destructor 就能够完成资源释放的任务, 这就要求 对象的每一个成员的 destructor 都可以完成对该成员本身持有的资源的释放, 这代表着我们需要尽量使用那些 “自身的 destructor 就能完成对自身的资源释放” 的类型作为本 class 的成员, 主要包括:
+1. 没有管理资源的类型, 比如 int, float, double 这种基本类型, 还有仅由基本类型组成的简单 class, 这些东西都是直接在 stack 上的, 会被 stack 正常摧毁, 或者说这些 class 就没有管理资源
+2. 管理了一些资源资源, 但是已经确保能在本类型的 destructor 里能释放资源的 class, 比如我们自己之前实现的一些 class ( 这个要求经过详细的测试 ), 还有一些比如 std::vector, std::unique_ptr, shared_ptr 这样的东西, 我们需要尽量使用这种类型作为我们的 class 的 member type
+
+那什么会让编译器的默认表现没法正常释放资源呢, 现在接触到的就只有裸指针, 因为裸指针在生命周期结束的时候会被当作一个long处理, 编译器只是认为他是一个long int 而不会认为他是一个指向 heap 上某一块 memory 资源的指针, 所以编译器的默认析构会造成内存泄漏, 所以为了让编译器的默认表现能正常释放资源, 我们就尽量不要用裸指针
+
+当然也有情况我们不得不自己手动管理资源而不能依赖编译器的默认表现, 那我们需要记住的是 " 获得了资源就要记得马上管理整个资源的生命周期 ", 包括 " 什么时候销毁资源, 什么时候转移资源 ", 具体操作就是, 一旦在 constructor 里面获取了资源 ( 比如 new 了 ), 那我们马上就需要做的是处理这个资源, 比如这个资源应该如何被释放, 什么时候会被转移, 也就是马上写 custom destrcutor 处理 " 如何释放资源 " 以确保资源的生命周期能和对象的生命周期绑定, 马上写 assignment operator 处理 " 如何转移资源 "
+
+上面这套逻辑就是 cpp 之父 Bjarne Stroustrup 推崇的 RAII ( Resource Acquisition Is Initialization )
+
+RAII 的本质是 "契约", 是程序员与编译器之间的一个契约, 程序员承诺将资源的控制权交给一个栈对象, 编译器承诺无论发生什么 ( 正常退出、return、抛出异常 ) 保证一定会在该对象离开作用域时调用它的 destructor, 还有我们可以注意到 " 对象成员的初始化顺序 " 和 " 析构顺序 " 是严格对称的, 即初始化时是 base class -> member ( 按照 declare 顺序 ) -> 本 class 的 constructor 函数体, 最后摧毁这个对象的时候顺序是 本 class 的 destructor -> member ( 跟 declaration 顺序相反 ) -> base class destructor
+
+这种严格对称性保证了: 如果一个对象的构造在途中心跳停止 ( 比如成员 B 的初始化抛出了异常 ), cpp 会自动按逆序销毁已经构造好的成员 ( 比如成员 A ) 而不会去销毁还没出生的成员, 这种 " 自动清理半成品 " 的特性只有靠 RAII 才能实现
+
+然后还要引入所有权 ( ownership) 的概念:
+A. 独占所有权 (Exclusive Ownership)
+   这份资源只能由一个对象拥有, 这个对象负责管理这整个资源的全部生命周期, 比如 std::unique_ptr, 这个资源不能随意拷贝 ( 因为有两个拥有者就会释放两次报错 ), 但可以转移 (Move), 因为 mover 就像接力棒, 我传给你我就不再管了
+B. 共享所有权 (Shared Ownership)
+   这份资源可以由多个对象共同拥有, 比如 std::shared_ptr, 这个实现的逻辑是在内部维护一个计数器, 最后一个走的人 ( 计数器归零 ) 负责关灯 ( 释放内存 )
+C. 观察权 (Observation/Weak Reference)
+   我只是看看但是我不拥有它, 现代 cpp 里面这个是 nake pointer 应该做的事情, 或者 std::weak_ptr
+
+** systematic methodology: 如何写出资源安全的代码
+
+Gemini 把我零散的想法整理成了一个所谓的方法论, 这套方法论总结为 "所有权分层法"
+
+1. 绝大部分场景: 做 "甩手掌柜", THE RULE OF ZERO!!!!
+   尽可能让你的类成员本身就具备 RAII 属性, 比如 std::unique_ptr, std::vector, 这个时候我就不需要写 destructor / copy constructor / assignment operator, 非常安全, 这个就是非常著名的, 前面也提到的 the rule of zero
+
+2. 必须手动管理时: 做 "合格的管家", THE RULE OF THREE/FIVE
+   有时候你必须手动管理一些原始资源, 这个时候遵循 the rule of three/five, 一旦在 constructor 里面写了 new, 一定马上去写 destructor, assignment operator, 还有 copy constructor, 注意在写 assignment operator 还有 copy constructor 的时候注意资源是否被完整的转移/复制了, 因为有时候写 Derived Class 的 assignment operator 或者 copy constructor 的时候会忘记转移 Base class 的资源, 比如这次 lab 里面愚蠢的 triangle.cpp, 一个比较好的实践是在 Derived Class 里面显式调用 base class 的 copy constructor 或者 operator=, 一定要把这几个一套的东西实现好, 一定一定要记得!!!!!!!
+
+3. 所有权语义显式化
+   在代码里, 看到指针要立刻问自己: " 谁拥有它 ?", 如果是本 object 拥有这个对象, 那么就不应该是 MemberClass * member 这种裸指针, 应该使用 MemberClass member 这样的对象 ( stack 能正常管理 ), 或者只用 std::unique_ptr<MemberClass> ptr, 如果在代码里看见裸指针, 默认只有观察权而没有所有权
+
+还有一些小细节, 是从上面的理解里面延伸出来的
+
+1. 业务代码和资源管理代码分开
+   资源管理应该是比较底层的 class 实现的, 底层的 class 应该实现 RAII 性质, 高层的业务代码直接使用底层的 RAII class 实现业务而不自己管理资源
+2. 保证 class object 的 " 原子性 "
+   尽量保证你拿到的对象是由 custom constructor 直接创建的第一手 object, 而不是经过 copy constructor 或者 operator= 经过二次处理的二手资源, 因为自己实现的 assignment operator 和 copy constructor 不一定好, 而直接由 custom constructor 直接创建的第一手 object 一定完整的正确的
+
+
 
 
 * Useful Tools

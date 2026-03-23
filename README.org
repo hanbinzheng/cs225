@@ -2,4 +2,4 @@
 
 course schedule:
 
-[[./lecture/schedule.png][course schedule]]
+[[./lecture/schedule.png]]

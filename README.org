@@ -1,2 +1,5 @@
 * A Learning Records of CS225
 
+course schedule:
+
+[[./lecture/schedule.png][course schedule]]

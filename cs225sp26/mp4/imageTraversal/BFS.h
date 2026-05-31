@@ -59,9 +59,7 @@ class BFS : public ImageTraversal
 		{
 			unsigned w = png.width();
 			unsigned h = png.height();
-			return (
-				(point.x >= 0 && point.x <= w - 1) && (point.y >= 0 && point.y <= h - 1)
-			);
+			return ((point.x <= w - 1) && (point.y <= h - 1));
 		}
 };
 

@@ -1,0 +1,25 @@
+mp5 feedback for hanbin.24
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c main.cpp -o .objs/main.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c maptiles.cpp -o .objs/maptiles.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c mosaiccanvas.cpp -o .objs/mosaiccanvas.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c sourceimage.cpp -o .objs/sourceimage.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c tileimage.cpp -o .objs/tileimage.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c util/coloredout.cpp -o .objs/util/coloredout.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c util/util.cpp -o .objs/util/util.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c cs225/HSLAPixel.cpp -o .objs/cs225/HSLAPixel.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c cs225/PNG.cpp -o .objs/cs225/PNG.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c cs225/lodepng/lodepng.cpp -o .objs/cs225/lodepng/lodepng.o
+g++ .objs/main.o .objs/maptiles.o .objs/mosaiccanvas.o .objs/sourceimage.o .objs/tileimage.o .objs/util/coloredout.o .objs/util/util.o .objs/cs225/HSLAPixel.o .objs/cs225/PNG.o .objs/cs225/lodepng/lodepng.o  -std=c++11 -lpthread -o mp5
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c tests/tests_part1.cpp -o .objs/tests/tests_part1.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c tests/tests_part2.cpp -o .objs/tests/tests_part2.o
+g++  -std=c++11 -g -O3 -pedantic  -MMD -MP  -c cs225/catch/catchmain.cpp -o .objs/cs225/catch/catchmain.o
+g++ .objs/maptiles.o .objs/mosaiccanvas.o .objs/sourceimage.o .objs/tileimage.o .objs/util/coloredout.o .objs/util/util.o .objs/cs225/HSLAPixel.o .objs/cs225/PNG.o .objs/cs225/lodepng/lodepng.o .objs/tests/tests_part1.o .objs/tests/tests_part2.o .objs/cs225/catch/catchmain.o  -std=c++11 -lpthread -o test
+Pass KDTree constructor tests +1
+Pass SmallerDimVal tests +1
+Pass shouldReplace tests +1
+Pass findNearestNeighbor tests +4
+Pass operator= and copy constructor tests +1
+Creates a basic MosaicCanvas (gridtest) +8
+Creates a complex canvas +4
+
+Total: 20

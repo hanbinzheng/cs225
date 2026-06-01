@@ -1,0 +1,15 @@
+Command: make clean
+rm -rf mp6 test .objs gridtest-actual.png test_result_*.kd
+
+Command: make mp6
+g++  -std=c++11 -g -O3 -pedantic -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable  -MMD -MP  -c -DMULTI_THREADS -DMAX_THREADS=8 main.cpp -o .objs/main.o
+g++  -std=c++11 -g -O3 -pedantic -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable  -MMD -MP  -c -DMULTI_THREADS -DMAX_THREADS=8 maptiles.cpp -o .objs/maptiles.o
+g++  -std=c++11 -g -O3 -pedantic -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable  -MMD -MP  -c -DMULTI_THREADS -DMAX_THREADS=8 mosaiccanvas.cpp -o .objs/mosaiccanvas.o
+g++  -std=c++11 -g -O3 -pedantic -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable  -MMD -MP  -c -DMULTI_THREADS -DMAX_THREADS=8 sourceimage.cpp -o .objs/sourceimage.o
+g++  -std=c++11 -g -O3 -pedantic -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable  -MMD -MP  -c -DMULTI_THREADS -DMAX_THREADS=8 tileimage.cpp -o .objs/tileimage.o
+g++  -std=c++11 -g -O3 -pedantic -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable  -MMD -MP  -c -DMULTI_THREADS -DMAX_THREADS=8 util/coloredout.cpp -o .objs/util/coloredout.o
+g++  -std=c++11 -g -O3 -pedantic -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable  -MMD -MP  -c -DMULTI_THREADS -DMAX_THREADS=8 util/util.cpp -o .objs/util/util.o
+g++  -std=c++11 -g -O3 -pedantic -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable  -MMD -MP  -c -DMULTI_THREADS -DMAX_THREADS=8 cs225/HSLAPixel.cpp -o .objs/cs225/HSLAPixel.o
+g++  -std=c++11 -g -O3 -pedantic -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable  -MMD -MP  -c -DMULTI_THREADS -DMAX_THREADS=8 cs225/PNG.cpp -o .objs/cs225/PNG.o
+g++  -std=c++11 -g -O3 -pedantic -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable  -MMD -MP  -c -DMULTI_THREADS -DMAX_THREADS=8 cs225/lodepng/lodepng.cpp -o .objs/cs225/lodepng/lodepng.o
+g++ .objs/main.o .objs/maptiles.o .objs/mosaiccanvas.o .objs/sourceimage.o .objs/tileimage.o .objs/util/coloredout.o .objs/util/util.o .objs/cs225/HSLAPixel.o .objs/cs225/PNG.o .objs/cs225/lodepng/lodepng.o  -std=c++11 -lpthread -o mp6

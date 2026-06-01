@@ -1,0 +1,21 @@
+lab_ml feedback for hanbin.24
+g++ -c -g -std=c++1y  -Wall -Wextra -pedantic -MP -MMD   -c -o tests/basic.o tests/basic.cpp
+g++ -c -g -std=c++1y  -Wall -Wextra -pedantic -MP -MMD   -c -o graph.o graph.cpp
+g++ -c -g -std=c++1y  -Wall -Wextra -pedantic -MP -MMD   -c -o NimLearner.o NimLearner.cpp
+g++ tests/basic.o graph.o NimLearner.o -std=c++1y  -lpthread -o test
+--- lab_ml ---
+Pass NimLearner(10) constructor tests +1
+Pass NimLearner(3) constructor tests +1
+Pass NimLearner(3) constructor tests +1
+Pass NimLearner(1) random game tests +1
+Pass NimLearner(10) random game tests +1
+Pass NimLearner(10) random game tests +1
+Pass NimLearner(10) random game tests +1
+Pass NimLearner(1) random path tests +1
+Pass NimLearner(1) edge weight tests +1
+Pass NimLearner(3) losing edge tests +1
+Pass NimLearner(4) better edge tests +1
+Pass NimLearner(10) ending edge weight tests +1
+Passing 10 or more cases in 12 cases gets full credit
+
+Total: 10

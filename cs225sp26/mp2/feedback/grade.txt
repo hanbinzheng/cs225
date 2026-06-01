@@ -1,0 +1,54 @@
+ feedback for hanbin.24
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic cs225/PNG.cpp
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic cs225/HSLAPixel.cpp
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic cs225/lodepng/lodepng.cpp
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic Image.cpp
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic StickerSheet.cpp
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic main.cpp
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic tests/unit_tests.cpp
+g++ unit_tests.o PNG.o HSLAPixel.o lodepng.o Image.o StickerSheet.o -std=c++1y  -lpthread -lm -o test
+Filters: [weight=1]
+===============================================================================
+All tests passed (21 assertions in 8 test cases)
+
++--------------------------+
+| Pass all basic tests! +8 |
++--------------------------+
+
+Filters: [weight=4][id=provided]
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
++--------------------------------+
+| A basic StickerSheet works. +4 |
++--------------------------------+
+
+Filters: [weight=2][id=copy]
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
++-----------------------------+
+| A two-point test passed. +2 |
++-----------------------------+
+
+Filters: [weight=2][id=range]
+===============================================================================
+All tests passed (8 assertions in 1 test case)
+
++-----------------------------+
+| A two-point test passed. +2 |
++-----------------------------+
+
+Filters: [weight=3][id=add]
+===============================================================================
+All tests passed (17 assertions in 1 test case)
+
++-------------------------------+
+| A three-point test passed. +3 |
++-------------------------------+
+
++----------------------------+
+| myImage.png looks good. +1 |
++----------------------------+
+
+Total: 20

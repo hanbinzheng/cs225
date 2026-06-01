@@ -1,0 +1,6 @@
+Running time improvement: +8 pts
+Memory improvement: +8 pts
+Explanation in report: +2 pts
+Mosaic file: +2 pts
+
+Total: 20

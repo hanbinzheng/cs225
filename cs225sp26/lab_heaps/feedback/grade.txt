@@ -1,0 +1,12 @@
+lab_heaps feedback for hanbin.24
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c   -c -o tests/basic.o tests/basic.cpp
+g++ tests/basic.o -std=c++11 -lpthread -o test
+--- Lab_Heaps ---
+Pass basic heapify down tests +1
+Pass junior-level heapify down tests +2
+Pass senior-level heapify down tests +2
+Pass basic build heaps tests +1
+Pass junior-level build heaps tests +2
+Pass senior-level build heaps tests +2
+
+Total: 10

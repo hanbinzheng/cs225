@@ -1,0 +1,204 @@
+MP6 performance audit
+NetID: hanbin.24
+Generated at: 2026-05-31T21:28:56+08:00
+Warm-up runs: 1
+Measured runs: 5
+Per-run timeout seconds: 120
+
+Tool versions
+g++: g++ (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0
+make: GNU Make 4.3
+timeout: timeout (GNU coreutils) 8.32
+time: time (GNU Time) UNKNOWN
+
+Runs
+Run warmup_1
+  exit_status: 0
+  elapsed_raw: 0:00.92
+  elapsed_seconds: 0.92
+  max_rss_kb: 256360
+  /usr/bin/time -v output:
+    	Command being timed: "./mp6 ./tests/source.png ./mp5_pngs/ 400 5 mosaic.png"
+    	User time (seconds): 3.27
+    	System time (seconds): 0.23
+    	Percent of CPU this job got: 378%
+    	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.92
+    	Average shared text size (kbytes): 0
+    	Average unshared data size (kbytes): 0
+    	Average stack size (kbytes): 0
+    	Average total size (kbytes): 0
+    	Maximum resident set size (kbytes): 256360
+    	Average resident set size (kbytes): 0
+    	Major (requiring I/O) page faults: 0
+    	Minor (reclaiming a frame) page faults: 68369
+    	Voluntary context switches: 18
+    	Involuntary context switches: 20
+    	Swaps: 0
+    	File system inputs: 0
+    	File system outputs: 13152
+    	Socket messages sent: 0
+    	Socket messages received: 0
+    	Signals delivered: 0
+    	Page size (bytes): 4096
+    	Exit status: 0
+
+Run measured_1
+  exit_status: 0
+  elapsed_raw: 0:00.87
+  elapsed_seconds: 0.87
+  max_rss_kb: 255668
+  /usr/bin/time -v output:
+    	Command being timed: "./mp6 ./tests/source.png ./mp5_pngs/ 400 5 mosaic.png"
+    	User time (seconds): 3.20
+    	System time (seconds): 0.20
+    	Percent of CPU this job got: 390%
+    	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.87
+    	Average shared text size (kbytes): 0
+    	Average unshared data size (kbytes): 0
+    	Average stack size (kbytes): 0
+    	Average total size (kbytes): 0
+    	Maximum resident set size (kbytes): 255668
+    	Average resident set size (kbytes): 0
+    	Major (requiring I/O) page faults: 0
+    	Minor (reclaiming a frame) page faults: 68363
+    	Voluntary context switches: 29
+    	Involuntary context switches: 19
+    	Swaps: 0
+    	File system inputs: 0
+    	File system outputs: 13152
+    	Socket messages sent: 0
+    	Socket messages received: 0
+    	Signals delivered: 0
+    	Page size (bytes): 4096
+    	Exit status: 0
+
+Run measured_2
+  exit_status: 0
+  elapsed_raw: 0:00.87
+  elapsed_seconds: 0.87
+  max_rss_kb: 255628
+  /usr/bin/time -v output:
+    	Command being timed: "./mp6 ./tests/source.png ./mp5_pngs/ 400 5 mosaic.png"
+    	User time (seconds): 3.25
+    	System time (seconds): 0.18
+    	Percent of CPU this job got: 393%
+    	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.87
+    	Average shared text size (kbytes): 0
+    	Average unshared data size (kbytes): 0
+    	Average stack size (kbytes): 0
+    	Average total size (kbytes): 0
+    	Maximum resident set size (kbytes): 255628
+    	Average resident set size (kbytes): 0
+    	Major (requiring I/O) page faults: 0
+    	Minor (reclaiming a frame) page faults: 68373
+    	Voluntary context switches: 35
+    	Involuntary context switches: 22
+    	Swaps: 0
+    	File system inputs: 0
+    	File system outputs: 13152
+    	Socket messages sent: 0
+    	Socket messages received: 0
+    	Signals delivered: 0
+    	Page size (bytes): 4096
+    	Exit status: 0
+
+Run measured_3
+  exit_status: 0
+  elapsed_raw: 0:00.84
+  elapsed_seconds: 0.84
+  max_rss_kb: 255660
+  /usr/bin/time -v output:
+    	Command being timed: "./mp6 ./tests/source.png ./mp5_pngs/ 400 5 mosaic.png"
+    	User time (seconds): 3.16
+    	System time (seconds): 0.18
+    	Percent of CPU this job got: 397%
+    	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.84
+    	Average shared text size (kbytes): 0
+    	Average unshared data size (kbytes): 0
+    	Average stack size (kbytes): 0
+    	Average total size (kbytes): 0
+    	Maximum resident set size (kbytes): 255660
+    	Average resident set size (kbytes): 0
+    	Major (requiring I/O) page faults: 0
+    	Minor (reclaiming a frame) page faults: 68371
+    	Voluntary context switches: 22
+    	Involuntary context switches: 31
+    	Swaps: 0
+    	File system inputs: 0
+    	File system outputs: 13152
+    	Socket messages sent: 0
+    	Socket messages received: 0
+    	Signals delivered: 0
+    	Page size (bytes): 4096
+    	Exit status: 0
+
+Run measured_4
+  exit_status: 0
+  elapsed_raw: 0:00.88
+  elapsed_seconds: 0.88
+  max_rss_kb: 255880
+  /usr/bin/time -v output:
+    	Command being timed: "./mp6 ./tests/source.png ./mp5_pngs/ 400 5 mosaic.png"
+    	User time (seconds): 3.22
+    	System time (seconds): 0.18
+    	Percent of CPU this job got: 385%
+    	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.88
+    	Average shared text size (kbytes): 0
+    	Average unshared data size (kbytes): 0
+    	Average stack size (kbytes): 0
+    	Average total size (kbytes): 0
+    	Maximum resident set size (kbytes): 255880
+    	Average resident set size (kbytes): 0
+    	Major (requiring I/O) page faults: 0
+    	Minor (reclaiming a frame) page faults: 68370
+    	Voluntary context switches: 32
+    	Involuntary context switches: 38
+    	Swaps: 0
+    	File system inputs: 0
+    	File system outputs: 13112
+    	Socket messages sent: 0
+    	Socket messages received: 0
+    	Signals delivered: 0
+    	Page size (bytes): 4096
+    	Exit status: 0
+
+Run measured_5
+  exit_status: 0
+  elapsed_raw: 0:00.87
+  elapsed_seconds: 0.87
+  max_rss_kb: 256396
+  /usr/bin/time -v output:
+    	Command being timed: "./mp6 ./tests/source.png ./mp5_pngs/ 400 5 mosaic.png"
+    	User time (seconds): 3.24
+    	System time (seconds): 0.19
+    	Percent of CPU this job got: 391%
+    	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:00.87
+    	Average shared text size (kbytes): 0
+    	Average unshared data size (kbytes): 0
+    	Average stack size (kbytes): 0
+    	Average total size (kbytes): 0
+    	Maximum resident set size (kbytes): 256396
+    	Average resident set size (kbytes): 0
+    	Major (requiring I/O) page faults: 0
+    	Minor (reclaiming a frame) page faults: 68362
+    	Voluntary context switches: 29
+    	Involuntary context switches: 18
+    	Swaps: 0
+    	File system inputs: 0
+    	File system outputs: 13144
+    	Socket messages sent: 0
+    	Socket messages received: 0
+    	Signals delivered: 0
+    	Page size (bytes): 4096
+    	Exit status: 0
+
+Summary
+  status: ok
+  build_success: Yes
+  warmup_exit_status: 0
+  successful_measured_runs: 5/5
+  elapsed_samples_seconds: 0.87;0.87;0.84;0.88;0.87
+  rss_samples_kb: 255668;255628;255660;255880;256396
+  median_elapsed_seconds: 0.87
+  median_max_rss_kb: 255668.00
+

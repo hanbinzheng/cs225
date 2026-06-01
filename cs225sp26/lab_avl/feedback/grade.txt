@@ -1,0 +1,12 @@
+lab_avl feedback for hanbin.24
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c   -c -o tests/basic.o tests/basic.cpp
+g++ tests/basic.o  -std=c++11 -lpthread -o test
+--- lab_avl ---
+Pass test_find tests +2
+Pass test_insert_small tests +1
+Pass test_insert_find tests +2
+Pass test_insert_big tests +2
+Pass test_remove_small tests +1
+Pass test_remove_big tests +2
+
+Total: 10

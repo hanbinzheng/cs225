@@ -1,0 +1,20 @@
+lab_huffman feedback for hanbin.24
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c frequency.cpp -o .objs/frequency.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c encoder.cpp -o .objs/encoder.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c decoder.cpp -o .objs/decoder.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c binary_file_writer.cpp -o .objs/binary_file_writer.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c binary_file_reader.cpp -o .objs/binary_file_reader.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c huffman_tree.cpp -o .objs/huffman_tree.o
+g++  .objs/frequency.o  .objs/encoder.o  .objs/decoder.o  .objs/binary_file_writer.o  .objs/binary_file_reader.o  .objs/huffman_tree.o tests/basic.cpp -std=c++11 -lpthread -o test
+--- lab_huffman ---
+Pass 1test_encoder_binary tests +1
+Pass 2test_encoder_binary2 tests +1
+Pass 3test_encoder_writetree tests +1
+Pass 4test_encoder_writetree2 tests +1
+Pass 5test_decode tests +1
+Pass 6test_decode2 tests +1
+Pass 7test_decode_readtree tests +1
+Pass 8test_decode_readtree2 tests +1
+Pass 9test_the_works tests +2
+
+Total: 10

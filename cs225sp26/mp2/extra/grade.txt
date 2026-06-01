@@ -1,0 +1,34 @@
+ feedback for hanbin.24
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic mp2-1.cpp
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic Image.cpp
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic cs225/PNG.cpp
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic cs225/HSLAPixel.cpp
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic cs225/lodepng/lodepng.cpp
+g++ mp2-1.o Image.o PNG.o HSLAPixel.o lodepng.o -std=c++1y  -lpthread -lm -o mp2-1	
+g++ -std=c++1y  -c -g -O0 -Wall -Wextra -pedantic tests/unit_tests.cpp
+g++ unit_tests.o PNG.o HSLAPixel.o lodepng.o Image.o -std=c++1y  -lpthread -lm -o test
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+test is a Catch v2.13.9 host application.
+Run with -? for options
+
+-------------------------------------------------------------------------------
+Image scale(1080,200) scales pixel data in a reasonable way
+-------------------------------------------------------------------------------
+tests/unit_tests.cpp:144
+...............................................................................
+
+tests/unit_tests.cpp:150: FAILED:
+  REQUIRE( result.width() == 720 )
+with expansion:
+  1080 (0x438) == 720 (0x2d0)
+
+===============================================================================
+test cases: 12 | 11 passed | 1 failed
+assertions: 15 | 14 passed | 1 failed
+
+Pass 11 tests! +4
+lighten.png looks good. +1
+saturate.png looks good. +1
+
+Total: 6

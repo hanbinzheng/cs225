@@ -1,0 +1,24 @@
+lab_hash feedback for hanbin.24
+g++ -std=c++1y -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c   -c -o tests/basic.o tests/basic.cpp
+g++ -std=c++1y -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c hashes.cpp -o .objs/hashes.o
+g++ -std=c++1y -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c textfile.cpp -o .objs/textfile.o
+g++ -std=c++1y  -lpthread tests/basic.o .objs/hashes.o .objs/textfile.o -o ./test
+--- lab_hash ---
+Pass testRemoveEASY +1
+Pass testRemoveHard +1
+Pass testResizeOnce +1
+Pass testResizeAll +2
+Pass testInsertEasy +1
+Pass testInsertHard +2
+Pass testWordCountSC +1
+Pass testWordCountLP +1
+
+ Baseline Total: 10
+
+--- extra credit ---
+Pass testAnagramsSC +1
+Pass testAnagramsLP +2
+
+ Extra Credit Total: 3
+
+Total: 13

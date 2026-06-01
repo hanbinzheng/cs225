@@ -1,0 +1,19 @@
+lab_dict feedback for hanbin.24
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c anagram_dict.cpp -o .objs/anagram_dict.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c cartalk_puzzle.cpp -o .objs/cartalk_puzzle.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c common_words.cpp -o .objs/common_words.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c fib.cpp -o .objs/fib.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c pronounce_dict.cpp -o .objs/pronounce_dict.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c   -c -o tests/unit_tests.o tests/unit_tests.cpp
+g++ -std=c++11 -lpthread -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable .objs/anagram_dict.o .objs/cartalk_puzzle.o .objs/common_words.o .objs/fib.o .objs/pronounce_dict.o tests/unit_tests.o -o test
+--- lab_dict ---
+Pass test_get_anagrams +1
+Pass test_get_all_anagrams +1
+Pass test_fib +1
+Pass test_memoized_fib +2
+Pass test_homophones +1
+Pass test_cartalk_puzzle +1
+Pass test_get_common_words_3 +1
+Pass test_get_common_words_999 +2
+
+Total: 10

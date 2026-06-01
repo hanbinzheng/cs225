@@ -1,0 +1,14 @@
+lab_graphs feedback for hanbin.24
+g++ -c -g -std=c++1y  -Wall -Wextra -pedantic -MP -MMD   -c -o tests/basic.o tests/basic.cpp
+g++ -c -g -std=c++1y  -Wall -Wextra -pedantic -MP -MMD   -c -o graph.o graph.cpp
+g++ -c -g -std=c++1y  -Wall -Wextra -pedantic -MP -MMD   -c -o graph_tools.o graph_tools.cpp
+g++ -c -g -std=c++1y  -Wall -Wextra -pedantic -MP -MMD   -c -o dsets.o dsets.cpp
+g++ tests/basic.o graph.o graph_tools.o dsets.o -std=c++1y -lpthread -o test
+--- Lab_Graphs ---
+Pass minWeight one edge tests +1
+Pass minWeight multiple edges tests +2
+Pass minPath one edge tests +1
+Pass minPath multiple edges tests +2
+Pass Kruskal tests +4
+
+Total: 10

@@ -1,0 +1,14 @@
+lab_quacks feedback for hanbin.24
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c   -c -o tests/basic.o tests/basic.cpp
+g++ -std=c++11 -g -O0 -pedantic -Wall -Werror -Wfatal-errors -Wextra -Wno-unused-parameter -Wno-unused-variable -MMD -MP -c   -c -o exercises.o exercises.cpp
+g++ tests/basic.o exercises.o -std=c++11 -lpthread -o test
+
+Scrambled queue: 1 3 2 4 5 6 10 9 8 7 11 12 13 14 15 17 16 
+Expected:        1 3 2 4 5 6 10 9 8 7 11 12 13 14 15 17 16 
+Scrambled queue: 4 6 5 7 8 9 12 11 10 
+Expected:        4 6 5 7 8 9 12 11 10 
+===============================================================================
+All tests passed (16 assertions in 7 test cases)
+
+
+Total: 13

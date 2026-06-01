@@ -1,0 +1,97 @@
+mp4 feedback for hanbin.24
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c Point.cpp -o Point.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c FloodFilledImage.cpp -o FloodFilledImage.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c Animation.cpp -o Animation.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c colorPicker/GradientColorPicker.cpp -o colorPicker/GradientColorPicker.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c colorPicker/GridColorPicker.cpp -o colorPicker/GridColorPicker.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c colorPicker/MyColorPicker.cpp -o colorPicker/MyColorPicker.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c colorPicker/RainbowColorPicker.cpp -o colorPicker/RainbowColorPicker.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c colorPicker/SolidColorPicker.cpp -o colorPicker/SolidColorPicker.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c imageTraversal/BFS.cpp -o imageTraversal/BFS.o
+In file included from imageTraversal/BFS.cpp:11:
+imageTraversal/BFS.h: In static member function ‘static bool BFS::point_in_png(const Point&, const cs225::PNG&)’:
+imageTraversal/BFS.h:63:42: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   63 |                                 (point.x >= 0 && point.x <= w - 1) && (point.y >= 0 && point.y <= h - 1)
+      |                                  ~~~~~~~~^~~~
+imageTraversal/BFS.h:63:80: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   63 |                                 (point.x >= 0 && point.x <= w - 1) && (point.y >= 0 && point.y <= h - 1)
+      |                                                                        ~~~~~~~~^~~~
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c imageTraversal/DFS.cpp -o imageTraversal/DFS.o
+In file included from imageTraversal/DFS.cpp:10:
+imageTraversal/DFS.h: In static member function ‘static bool DFS::point_in_png(const Point&, const cs225::PNG&)’:
+imageTraversal/DFS.h:62:42: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   62 |                                 (point.x >= 0 && point.x <= w - 1)      && (point.y >= 0 && point.y <= h -1)
+      |                                  ~~~~~~~~^~~~
+imageTraversal/DFS.h:62:85: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   62 |                                 (point.x >= 0 && point.x <= w - 1)      && (point.y >= 0 && point.y <= h -1)
+      |                                                                             ~~~~~~~~^~~~
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c imageTraversal/ImageTraversal.cpp -o imageTraversal/ImageTraversal.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c cs225/HSLAPixel.cpp -o cs225/HSLAPixel.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c cs225/PNG.cpp -o cs225/PNG.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c cs225/lodepng/lodepng.cpp -o cs225/lodepng/lodepng.o
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c   -c -o tests/testmain.o tests/testmain.cpp
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c   -c -o tests/tests_part1.o tests/tests_part1.cpp
+In file included from tests/tests_part1.cpp:11:
+tests/../imageTraversal/BFS.h: In static member function ‘static bool BFS::point_in_png(const Point&, const cs225::PNG&)’:
+tests/../imageTraversal/BFS.h:63:42: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   63 |                                 (point.x >= 0 && point.x <= w - 1) && (point.y >= 0 && point.y <= h - 1)
+      |                                  ~~~~~~~~^~~~
+tests/../imageTraversal/BFS.h:63:80: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   63 |                                 (point.x >= 0 && point.x <= w - 1) && (point.y >= 0 && point.y <= h - 1)
+      |                                                                        ~~~~~~~~^~~~
+In file included from tests/tests_part1.cpp:12:
+tests/../imageTraversal/DFS.h: In static member function ‘static bool DFS::point_in_png(const Point&, const cs225::PNG&)’:
+tests/../imageTraversal/DFS.h:62:42: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   62 |                                 (point.x >= 0 && point.x <= w - 1)      && (point.y >= 0 && point.y <= h -1)
+      |                                  ~~~~~~~~^~~~
+tests/../imageTraversal/DFS.h:62:85: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   62 |                                 (point.x >= 0 && point.x <= w - 1)      && (point.y >= 0 && point.y <= h -1)
+      |                                                                             ~~~~~~~~^~~~
+tests/tests_part1.cpp: In function ‘void C_A_T_C_H_T_E_S_T_8()’:
+tests/tests_part1.cpp:102:22: warning: unused variable ‘p’ [-Wunused-variable]
+  102 |   for (const Point & p : t) {
+      |                      ^
+tests/tests_part1.cpp: In function ‘void C_A_T_C_H_T_E_S_T_10()’:
+tests/tests_part1.cpp:114:22: warning: unused variable ‘p’ [-Wunused-variable]
+  114 |   for (const Point & p : t) {
+      |                      ^
+tests/tests_part1.cpp: In function ‘void C_A_T_C_H_T_E_S_T_12()’:
+tests/tests_part1.cpp:127:22: warning: unused variable ‘p’ [-Wunused-variable]
+  127 |   for (const Point & p : t) { count++; }
+      |                      ^
+tests/tests_part1.cpp: In function ‘void C_A_T_C_H_T_E_S_T_14()’:
+tests/tests_part1.cpp:138:22: warning: unused variable ‘p’ [-Wunused-variable]
+  138 |   for (const Point & p : t) { count++; }
+      |                      ^
+g++ -std=c++11 -g -O0 -pedantic -Wall -Wextra -Wno-unused-parameter -c   -c -o tests/tests_part2.o tests/tests_part2.cpp
+In file included from tests/tests_part2.cpp:14:
+tests/../imageTraversal/DFS.h: In static member function ‘static bool DFS::point_in_png(const Point&, const cs225::PNG&)’:
+tests/../imageTraversal/DFS.h:62:42: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   62 |                                 (point.x >= 0 && point.x <= w - 1)      && (point.y >= 0 && point.y <= h -1)
+      |                                  ~~~~~~~~^~~~
+tests/../imageTraversal/DFS.h:62:85: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   62 |                                 (point.x >= 0 && point.x <= w - 1)      && (point.y >= 0 && point.y <= h -1)
+      |                                                                             ~~~~~~~~^~~~
+In file included from tests/tests_part2.cpp:15:
+tests/../imageTraversal/BFS.h: In static member function ‘static bool BFS::point_in_png(const Point&, const cs225::PNG&)’:
+tests/../imageTraversal/BFS.h:63:42: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   63 |                                 (point.x >= 0 && point.x <= w - 1) && (point.y >= 0 && point.y <= h - 1)
+      |                                  ~~~~~~~~^~~~
+tests/../imageTraversal/BFS.h:63:80: warning: comparison of unsigned expression in ‘>= 0’ is always true [-Wtype-limits]
+   63 |                                 (point.x >= 0 && point.x <= w - 1) && (point.y >= 0 && point.y <= h - 1)
+      |                                                                        ~~~~~~~~^~~~
+g++ Point.o FloodFilledImage.o Animation.o colorPicker/GradientColorPicker.o colorPicker/GridColorPicker.o colorPicker/MyColorPicker.o colorPicker/RainbowColorPicker.o colorPicker/SolidColorPicker.o imageTraversal/BFS.o imageTraversal/DFS.o imageTraversal/ImageTraversal.o cs225/HSLAPixel.o cs225/PNG.o cs225/lodepng/lodepng.o tests/testmain.o tests/tests_part1.o tests/tests_part2.o -std=c++11 -lpthread -o test
+--- MP4 ---
+Pass basic iterator tests +1
+Pass tolerance for all points tests +2
+Pass visiting order tests +2
+Pass Illini I - FloodFilledImage, DFS tests +2
+Pass Illini I - FloodFilledImage, BFS tests +2
+Pass PacMan - FloodFilledImage, DFS tests +2
+Pass PacMan - FloodFilledImage, BFS tests +2
+Pass Bugcat - FloodFilledImage, BFS tests +2
+Pass Bugcat - FloodFilledImage, DFS tests +2
+Pass Garfield - FloodFilledImage, BFS tests +3
+
+Total: 14
+Penalty: 30%
